@@ -2,18 +2,32 @@ import time
 import threading
 from datetime import datetime
 import extensions as context
-from core.helpers import clean_text, parse_sale_datetime
+from core.helpers import clean_text, parse_sale_datetime, is_event_expired
 from services.telegram_service import send_telegram
-from services.cache_service import auto_cache_order_details
+from services.cache_service import auto_cache_order_details, launch_auto_cache_if_needed
 
 def build_order_message(order):
+    source = clean_text(order.get('source', 'Unknown'))
+    order_id = clean_text(order.get('id', '-'))
+    event_name = clean_text(order.get('event', '-'))
+    
+    # We assume the app is hosted somewhere, but we'll use a placeholder URL if not set
+    # Ideally this would come from an env var like APP_URL
+    import os
+    app_url = os.environ.get("APP_URL", "http://127.0.0.1:5000")
+    
+    # We can link directly to the app dashboard, maybe later with a query param or fragment to open the order
+    # For now, link to the dashboard, and maybe the user can just search or click the order
+    link = f"{app_url}"
+    
     return (
-        f"🔥 NEW ORDER 🔥\n"
-        f"SOURCE: {order.get('source', 'Unknown')}\n"
-        f"ID: {order.get('id', '-')}\n"
-        f"CUSTOMER: {order.get('customer', '-')}\n"
-        f"EVENT: {order.get('event', '-')}\n"
-        f"SALE DATE: {order.get('sale_date', '-')}"
+        f"**NEW ORDER**\n\n"
+        f"*Event:* {event_name}\n"
+        f"*Source:* {source}\n"
+        f"*Order ID:* `{order_id}`\n"
+        f"*Customer:* {order.get('customer', '-')}\n"
+        f"*Sale Date:* {order.get('sale_date', '-')}\n\n"
+        f"[View in OrderTicketMonitor]({link})"
     )
 
 
@@ -61,13 +75,36 @@ def check_all_platforms_once(seen_orders):
     order_key = unique_order_key(latest_order)
 
     if order_key not in seen_orders and not is_event_expired(latest_order["event_date"]):
+        # 1. Send the initial Telegram alert immediately
         send_telegram(build_order_message(latest_order))
+        
         seen_orders.add(order_key)
         context.state.save_seen_orders(seen_orders)
         latest_order["status"] = latest_order.get("status") or "Sent to Telegram"
         context.state.upsert_sent_order_row(latest_order)
         context.state.set_last_alert()
         context.state.log(f"New order sent -> {order_key}")
+        
+        # 2. Spawn background thread for TicketsShop verification
+        if latest_order.get("source") == "LiveTicketGroup":
+            def verify_inventory(order_details):
+                try:
+                    from services.inventory_service import check_ticketsshop_for_order
+                    is_listed = check_ticketsshop_for_order(order_details["event"], order_details["id"])
+                    if is_listed is False:
+                        # Follow-up ping if NOT listed
+                        msg = (
+                            f"**Missing Inventory Alert**\n\n"
+                            f"The order `{order_details['id']}` from LiveTicketGroup "
+                            f"({order_details['event']}) is NOT listed in the TicketsShop system. "
+                            f"Please add it."
+                        )
+                        send_telegram(msg)
+                except Exception as e:
+                    context.state.log(f"TicketsShop check error: {e}")
+            
+            threading.Thread(target=verify_inventory, args=(latest_order,), daemon=True).start()
+            
     else:
         context.state.upsert_sent_order_row(latest_order)
         context.state.log("No new latest order")

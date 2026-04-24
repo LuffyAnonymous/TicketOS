@@ -45,7 +45,7 @@ ADMIN_PASSWORD = "admin123"
 APP_TITLE = "Sales & Order Notification"
 JWT_SECRET = "CHANGE-THIS-TO-A-LONG-RANDOM-SECRET"
 JWT_ALGORITHM = "HS256"
-ACCESS_COOKIE_NAME = "orderdash_access_token"
+ACCESS_COOKIE_NAME = "orderticketmonitor_access_token"
 
 INACTIVITY_MINUTES = 20
 REMEMBER_DAYS = 30

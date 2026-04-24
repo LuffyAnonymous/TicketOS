@@ -24,7 +24,7 @@ function parseDate(dateText) {
   const [,dd,mm,yyyy,hh,min,ss] = m;
   return new Date(Number(yyyy), Number(mm)-1, Number(dd), Number(hh), Number(min), Number(ss||0));
 }
-function updateGreeting(){ const el=document.getElementById('greetingText'); if(!el) return; const h=new Date().getHours(); el.textContent=(h<12&&h>=5?'Good morning':h<18?'Good afternoon':'Good evening')+' 👋'; }
+function updateGreeting(){ const el=document.getElementById('greetingText'); if(!el) return; const h=new Date().getHours(); let greeting='Good evening'; if(h>=5 && h<12) greeting='Good morning'; else if(h>=12 && h<18) greeting='Good afternoon'; el.textContent=greeting+' 👋'; }
 function setStatusText(status){ const hero=document.getElementById('heroStatus'); if(hero) hero.textContent=status||'Stopped'; }
 function setSleepButtons(on){ ['sleepToggleSettings'].forEach(id=>{ const el=document.getElementById(id); if(!el) return; el.textContent=on?'Sleep 12AM: ON':'Sleep 12AM: OFF'; el.classList.toggle('active',!!on); }); }
 
@@ -53,33 +53,97 @@ function groupOrdersByEventSource(orders){
   return Object.values(grouped).sort((a,b)=>b.orders_count-a.orders_count || a.event.localeCompare(b.event) || a.source.localeCompare(b.source));
 }
 
-function renderEventSummaryCards(containerId, groups, clickable=true){
-  const el=document.getElementById(containerId); if(!el) return;
-  if(!groups.length){ el.innerHTML='<div class="muted">No events yet</div>'; return; }
-  el.innerHTML=groups.map(g=>{
-    const selected = selectedEvent===g.event && selectedSource===g.source;
-    return `<button class="event-summary-card ${selected?'selected':''}" ${clickable?`onclick="filterOrdersByEventSource(${JSON.stringify(g.event).replace(/"/g,'&quot;')}, ${JSON.stringify(g.source).replace(/"/g,'&quot;')})"`:''}>
-      <div class="event-card-top"><div class="event-name">${esc(g.event)}</div><div class="event-date">${esc(g.event_date||'-')}</div></div>
-      <div class="event-card-breakdown">
-        <div class="event-breakdown-item"><span class="event-breakdown-label">Orders</span><strong>${g.orders_count}</strong></div>
-        <div class="event-breakdown-item"><span class="event-breakdown-label">Source</span><strong>${esc(g.source)}</strong></div>
-      </div>
-    </button>`;
+function renderActiveEvents(totals) {
+  const body = document.getElementById('activeEventsBody');
+  if(!body) return;
+  if(!totals || !totals.length) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">No active events yet</td></tr>';
+    return;
+  }
+  body.innerHTML = totals.map(t => {
+    const statusHtml = t.needs_attention 
+        ? '<span class="status-pill cancelled">Needs Attention</span>' 
+        : '<span class="status-pill processed">Healthy</span>';
+    return `<tr style="cursor:pointer;" onclick="openOrdersTab('${esc(t.event)}','${esc(t.source)}')">
+      <td style="font-weight: 700;">${esc(t.event)}</td>
+      <td>${esc(t.source)}</td>
+      <td>${t.orders_count}</td>
+      <td>${t.total_quantity}</td>
+      <td>£${t.total_price.toFixed(2)}</td>
+      <td>${statusHtml}</td>
+    </tr>`;
   }).join('');
 }
 
-function renderRecentSent(rows){ const body=document.getElementById('recentSentBody'); if(!body) return; if(!rows.length){ body.innerHTML='<tr><td colspan="5" class="muted">No recent sent orders</td></tr>'; return; } body.innerHTML=rows.map(r=>`<tr><td><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button></td><td>${esc(r.customer||'-')}</td><td>${esc(r.event||'-')}</td><td>${esc(r.sale_date||'-')}</td><td>${esc(r.source||'-')}</td></tr>`).join(''); }
+function renderRecentSent(rows){ 
+  const body = document.getElementById('recentSentBody'); 
+  if(!body) return; 
+  if(!rows.length){ 
+    body.innerHTML='<tr><td colspan="3" class="muted">No recent sent orders</td></tr>'; 
+    return; 
+  } 
+  body.innerHTML = rows.map(r => `<tr>
+    <td><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button></td>
+    <td>${esc(r.event||'-')}</td>
+    <td>${esc(r.source||'-')}</td>
+  </tr>`).join(''); 
+}
 
-function renderFilteredOrders(){
-  const body=document.getElementById('filteredOrdersBody'); if(!body) return;
-  let rows=latestOrdersData.slice();
-  if(selectedEvent && selectedSource) rows=rows.filter(r=>r.event===selectedEvent && r.source===selectedSource);
-  const title=document.getElementById('ordersTableTitle'); const sub=document.getElementById('ordersTableSub');
-  if(title) title.textContent=(selectedEvent && selectedSource)?`Orders for ${selectedEvent} — ${selectedSource}`:'All Orders';
-  if(sub) sub.textContent=(selectedEvent && selectedSource)?'Showing only the matching orders for this event and source.':'Showing ID, Name, Event, Sale Date, and Source.';
-  if(!rows.length){ body.innerHTML='<tr><td colspan="5" class="muted">No orders to show</td></tr>'; return; }
-  rows=rows.slice().sort((a,b)=>(parseDate(b.sale_date)||0)-(parseDate(a.sale_date)||0));
-  body.innerHTML=rows.map(r=>`<tr><td><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id)}</button></td><td>${esc(r.customer||'-')}</td><td>${esc(r.event||'-')}</td><td>${esc(r.sale_date||'-')}</td><td>${esc(r.source||'-')}</td></tr>`).join('');
+function toggleAccordion(id) {
+  const body = document.getElementById(id);
+  if(body) {
+    body.classList.toggle('hidden');
+  }
+}
+
+function renderEventAccordion(groups) {
+  const container = document.getElementById('ordersEventAccordion');
+  if(!container) return;
+  if(!groups || !groups.length) {
+    container.innerHTML = '<div class="muted">No orders found.</div>';
+    return;
+  }
+
+  container.innerHTML = groups.map((g, i) => {
+    const bodyId = `accordion-body-${i}`;
+    
+    let ordersHtml = `
+      <div class="table-wrap short-table" style="border: none; max-height: none;">
+        <table>
+          <thead>
+            <tr><th>ID</th><th>Customer</th><th>Quantity</th><th>Total Price</th><th>Sale Date</th><th>Status</th><th>Source</th></tr>
+          </thead>
+          <tbody>
+            ${g.orders.slice().sort((a,b)=>(parseDate(b.sale_date)||0)-(parseDate(a.sale_date)||0)).map(r => `
+              <tr>
+                <td><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id)}</button></td>
+                <td>${esc(r.customer||'-')}</td>
+                <td>${esc(qtyFor(r))}</td>
+                <td>£${Number(totalFor(r)).toFixed(2)}</td>
+                <td>${esc(r.sale_date||'-')}</td>
+                <td>${statusBadge(orderStatus(r))}</td>
+                <td>${esc(r.source||'-')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    const isExpanded = selectedEvent === g.event && selectedSource === g.source;
+    
+    return `
+      <div class="accordion-item" style="border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; background: var(--card); overflow: hidden;">
+        <div class="accordion-header" style="padding: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: var(--table-head);" onclick="toggleAccordion('${bodyId}')">
+          <div style="font-weight: 700; font-size: 16px;">${esc(g.event)} <span style="font-size: 13px; font-weight: normal; color: var(--muted);">→ ${esc(g.source)} (${g.orders_count} orders)</span></div>
+          <div style="color: var(--muted);">▼</div>
+        </div>
+        <div id="${bodyId}" class="${isExpanded ? '' : 'hidden'}" style="border-top: 1px solid var(--border);">
+          ${ordersHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 function renderCustomerAnalytics(orders){ const body=document.getElementById('customersBody'); if(!body) return; if(!orders.length){ body.innerHTML='<tr><td colspan="5" class="muted">No customer data</td></tr>'; return; } const map={}; for(const r of orders){ const c=(r.customer||'Unknown').trim()||'Unknown'; if(!map[c]) map[c]={customer:c,totalOrders:0,events:new Set(),platforms:new Set(),nextEventDateText:'-',nextEventDate:null}; map[c].totalOrders++; map[c].events.add(r.event||'Unknown'); map[c].platforms.add(r.source||'Unknown'); const d=parseDate(r.event_date); if(d && (!map[c].nextEventDate || d<map[c].nextEventDate)){ map[c].nextEventDate=d; map[c].nextEventDateText=r.event_date||'-'; }} const rows=Object.values(map).sort((a,b)=>b.totalOrders-a.totalOrders); body.innerHTML=rows.map(r=>`<tr><td>${esc(r.customer)}</td><td>${r.totalOrders}</td><td>${r.events.size}</td><td>${esc(Array.from(r.platforms).join(', '))}</td><td>${esc(r.nextEventDateText)}</td></tr>`).join(''); }
@@ -96,27 +160,64 @@ function closeOrderDrawer(){ document.getElementById('orderDrawer').classList.ad
 function renderLineItemsTable(items){ if(!items||!items.length) return '<div class="muted">No ticket rows found.</div>'; const rows=items.map(row=>`<tr>${row.map(cell=>`<td>${esc(cell)}</td>`).join('')}</tr>`).join(''); return `<div class="drawer-section"><div class="drawer-section-title">Ticket Rows</div><div class="drawer-table-wrap"><table><thead><tr><th>Category</th><th>Section</th><th>Row</th><th>Seating</th><th>Allocation</th><th>Shipping</th><th>Qty</th></tr></thead><tbody>${rows}</tbody></table></div></div>`; }
 async function openOrderDrawer(source, orderId, eventName){ const s=decodeURIComponent(source||''), id=decodeURIComponent(orderId||''), ev=decodeURIComponent(eventName||''); openDrawerShell(`Order #${id}`, `${s} • ${ev||'Loading...'}`, `<div class="drawer-loading"><div class="drawer-spinner"></div><div>Loading order details...</div></div>`); try{ const res=await api(`/api/order-details/${encodeURIComponent(s)}/${encodeURIComponent(id)}`); const d=res.details||{}; orderDetailsCache[`${s}::${id}`]=d; const attendees=(d.attendees&&d.attendees.length)?d.attendees.map(n=>`<span class="attendee-pill">${esc(n)}</span>`).join(''):'<span class="muted">No attendees found.</span>'; document.getElementById('drawerOrderSub').textContent=`${s} • ${d.event||ev||'Order Details'}`; document.getElementById('orderDrawerBody').innerHTML=`<div class="detail-card-grid"><div class="detail-card"><div class="detail-label">Order Status</div><div class="detail-value">${esc(d.status||'Unknown')}</div></div><div class="detail-card"><div class="detail-label">Area / Section</div><div class="detail-value">${esc(d.area||'Unknown')}</div></div><div class="detail-card"><div class="detail-label">Quantity</div><div class="detail-value">${esc(d.quantity||'Unknown')}</div></div><div class="detail-card"><div class="detail-label">Price per Ticket</div><div class="detail-value">${esc(d.price_per_ticket||'Unknown')}</div></div><div class="detail-card"><div class="detail-label">Total Price</div><div class="detail-value">${esc(d.total_price||'Unknown')}</div></div><div class="detail-card"><div class="detail-label">Shipping</div><div class="detail-value">${esc(d.shipping||'Unknown')}</div></div><div class="detail-card"><div class="detail-label">Customer</div><div class="detail-value">${esc(d.customer_name||'Unknown')}</div></div><div class="detail-card"><div class="detail-label">Phone</div><div class="detail-value">${esc(d.customer_phone||'Unknown')}</div></div><div class="detail-card"><div class="detail-label">League</div><div class="detail-value">${esc(d.league||'Unknown')}</div></div><div class="detail-card"><div class="detail-label">Venue</div><div class="detail-value">${esc(d.venue||'Unknown')}</div></div><div class="detail-card"><div class="detail-label">Event Date</div><div class="detail-value">${esc(d.event_date||'Unknown')}</div></div></div><div class="drawer-section"><div class="drawer-section-title">Attendees</div><div class="attendee-list">${attendees}</div></div>${renderLineItemsTable(d.line_items||[])}`; refreshDerivedViews(); } catch(e){ document.getElementById('orderDrawerBody').innerHTML=`<div class="drawer-error"><div class="drawer-error-title">Failed to load order details</div><div>${esc(e.message||'Unknown error')}</div></div>`; }}
 
-function filterOrdersByEventSource(eventName, sourceName){ selectedEvent=eventName; selectedSource=sourceName; openOrdersTab(); renderFilteredOrders(); renderEventSummaryCards('eventSummaryCards', groupOrdersByEventSource(latestOrdersData), true); renderEventSummaryCards('ordersEventList', groupOrdersByEventSource(latestOrdersData), true); }
-function clearEventFilter(){ selectedEvent=null; selectedSource=null; openOrdersTab(); renderFilteredOrders(); renderEventSummaryCards('eventSummaryCards', groupOrdersByEventSource(latestOrdersData), true); renderEventSummaryCards('ordersEventList', groupOrdersByEventSource(latestOrdersData), true); }
-function openOrdersTab(){ const links=document.querySelectorAll('.nav-link'); const pages=document.querySelectorAll('.tab-page'); pages.forEach(p=>p.classList.remove('active')); links.forEach(l=>l.classList.remove('active')); document.getElementById('ordersTab').classList.add('active'); document.querySelector('.nav-link[data-tab="ordersTab"]').classList.add('active'); }
+function openOrdersTab(eventName = null, sourceName = null) {
+  if (eventName && sourceName) {
+    selectedEvent = eventName;
+    selectedSource = sourceName;
+    refreshDerivedViews();
+  }
+  const links = document.querySelectorAll('.nav-link');
+  const pages = document.querySelectorAll('.tab-page');
+  pages.forEach(p => p.classList.remove('active'));
+  links.forEach(l => l.classList.remove('active'));
+  document.getElementById('ordersTab').classList.add('active');
+  const navLink = document.querySelector('.nav-link[data-tab="ordersTab"]');
+  if (navLink) navLink.classList.add('active');
+}
 
 async function refreshCharts(){ try{ const data=await api('/api/chart-data'); renderHourChart(data.hourly.labels, data.hourly.values); renderDayChart(data.daily.labels, data.daily.values);}catch(e){console.error(e);} }
-function refreshDerivedViews(){ const groups=groupOrdersByEventSource(latestOrdersData); renderEventSummaryCards('eventSummaryCards', groups, true); renderEventSummaryCards('ordersEventList', groups, true); renderFilteredOrders(); renderCustomerAnalytics(latestOrdersData); renderActivity(latestOrdersData); }
+function refreshDerivedViews() {
+  const groups = groupOrdersByEventSource(latestOrdersData);
+  renderEventAccordion(groups);
+  renderCustomerAnalytics(latestOrdersData);
+  renderActivity(latestOrdersData);
+}
 
 async function refresh(){
   const data=await api('/api/state');
-  currentRole=data.current_role||'member'; currentUser=data.current_user||''; latestOrdersData=data.orders||[]; latestSentData=(data.sent_orders||[]).slice(0,10);
+  currentRole=data.current_role||'member'; 
+  currentUser=data.current_user||''; 
+  latestOrdersData=data.orders||[]; 
+  const now = new Date();
+  latestSentData = (data.sent_orders || []).filter(r => {
+    const d = parseDate(r.sale_date);
+    if (!d) return true;
+    return (now - d) <= 24 * 60 * 60 * 1000;
+  });
   document.getElementById('totalOrdersCount').textContent=data.summary.order_count??0;
   document.getElementById('processedOrdersCount').textContent=data.summary.processed_count??0;
   document.getElementById('cancelledOrdersCount').textContent=data.summary.cancelled_count??0;
   document.getElementById('pendingOrdersCount').textContent=data.summary.pending_count??0;
   document.getElementById('sessionStatus').textContent=data.summary.session_status||'-';
-  document.getElementById('liveSessionStatus').textContent=data.summary.session_status||'-';
-  document.getElementById('lastOrder').textContent=data.summary.last_order_info||'-';
+  
+  const h=document.getElementById('liveSessionStatus'); if(h) h.textContent=data.summary.session_status||'-';
+  const lastO=document.getElementById('lastOrder'); if(lastO) lastO.textContent=data.summary.last_order_info||'-';
+  
   document.getElementById('currentUserName').textContent=currentUser||'-';
-  document.getElementById('inactivityInfo').textContent=`${data.inactivity_minutes||20} min inactivity`;
+  
+  const inact=document.getElementById('inactivityInfo'); if(inact) inact.textContent=`${data.inactivity_minutes||20} min inactivity`;
   const interval=document.getElementById('intervalMinutesSettings'); if(interval) interval.value=data.summary.settings?.interval_minutes??30;
+  
   setStatusText(data.summary.status||'Stopped'); setSleepButtons(data.summary.settings?.sleep_window_enabled); renderSourceBreakdown(data.summary.source_counts||{}); renderRecentSent(latestSentData); renderMembers(data.members||[]); refreshDerivedViews();
+  
+  try {
+    const totalsResponse = await api('/api/event-totals');
+    if (totalsResponse.ok) {
+        renderActiveEvents(totalsResponse.totals);
+    }
+  } catch (e) {
+    console.error("Failed to load event totals", e);
+  }
 }
 
 async function startBot(){ try{ await api('/api/start',{method:'POST'}); await fullRefresh(); }catch(e){ alert(e.message);} }
@@ -129,8 +230,8 @@ async function resetPasswordPrompt(username){ const password=prompt(`Enter new p
 async function changeRole(username, role){ try{ await api('/api/users/change-role',{method:'POST',body:JSON.stringify({username,role})}); await refresh(); }catch(e){ alert(e.message);} }
 async function toggleUserActive(username){ try{ await api('/api/users/toggle-active',{method:'POST',body:JSON.stringify({username})}); await refresh(); }catch(e){ alert(e.message);} }
 async function deleteUser(username){ if(!confirm(`Delete user ${username}?`)) return; try{ await api('/api/users/delete',{method:'POST',body:JSON.stringify({username})}); await refresh(); }catch(e){ alert(e.message);} }
-function setTheme(theme){ if(theme==='dark'){ document.body.classList.add('dark'); localStorage.setItem('orderdash-theme','dark'); } else { document.body.classList.remove('dark'); localStorage.setItem('orderdash-theme','light'); }}
-function loadTheme(){ setTheme(localStorage.getItem('orderdash-theme')||'light'); }
+function setTheme(theme){ if(theme==='dark'){ document.body.classList.add('dark'); localStorage.setItem('orderticketmonitor-theme','dark'); } else { document.body.classList.remove('dark'); localStorage.setItem('orderticketmonitor-theme','light'); }}
+function loadTheme(){ setTheme(localStorage.getItem('orderticketmonitor-theme')||'light'); }
 function setupTabs(){ const links=document.querySelectorAll('.nav-link'); const pages=document.querySelectorAll('.tab-page'); links.forEach(link=>link.addEventListener('click',e=>{ e.preventDefault(); links.forEach(l=>l.classList.remove('active')); pages.forEach(p=>p.classList.remove('active')); link.classList.add('active'); const page=document.getElementById(link.dataset.tab); if(page) page.classList.add('active'); })); }
 async function fullRefresh(){ await refresh(); await refreshCharts(); }
 loadTheme(); setupTabs(); updateGreeting(); fullRefresh(); setInterval(fullRefresh,4000); setInterval(updateGreeting,60000);
