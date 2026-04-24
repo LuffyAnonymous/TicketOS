@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Runtime state / secrets
+*.json
+.env
+
+# Debug output
+debug_*.html
+debug_*.js
+debug_*.png
+
+# OS
+.DS_Store

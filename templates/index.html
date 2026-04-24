@@ -1,0 +1,186 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=26">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <div class="brand-title">OrderDash</div>
+        <div class="brand-sub">Multi Platform Monitor</div>
+      </div>
+    </div>
+
+    <nav class="side-nav">
+      <a href="#" class="nav-link active" data-tab="dashboardTab">Dashboard</a>
+      <a href="#" class="nav-link" data-tab="ordersTab">Orders</a>
+      <a href="#" class="nav-link" data-tab="customersTab">Customers</a>
+      <a href="#" class="nav-link" data-tab="activityTab">Activity</a>
+      <a href="#" class="nav-link" data-tab="settingsTab">Settings</a>
+    </nav>
+
+    <div class="sidebar-card">
+      <div class="sidebar-card-title">Quick Status</div>
+      <div class="mini-status">
+        <span>Bot</span>
+        <strong id="heroStatus">Stopped</strong>
+      </div>
+      <div class="mini-status">
+        <span>Session</span>
+        <strong id="sessionStatus">-</strong>
+      </div>
+      <div class="mini-status">
+        <span>User</span>
+        <strong id="currentUserName">{{ current_user }}</strong>
+      </div>
+    </div>
+
+    <a class="logout-link" href="/logout">Log out</a>
+  </aside>
+
+  <main class="main">
+    <section id="dashboardTab" class="tab-page active">
+      <header class="topbar">
+        <div>
+          <h1 id="greetingText">Hello 👋</h1>
+          <p>Clean control view for orders grouped by event and source</p>
+        </div>
+        <div class="top-actions">
+          <button class="ghost-btn" onclick="checkNow()">Check Now</button>
+          
+        </div>
+      </header>
+
+      <section class="stats-grid">
+        <div class="stat-card blue">
+          <div class="stat-label">Total Orders</div>
+          <div class="stat-value" id="totalOrdersCount">0</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-label">Processed Orders</div>
+          <div class="stat-value" id="processedOrdersCount">0</div>
+        </div>
+        <div class="stat-card orange">
+          <div class="stat-label">Cancelled Orders</div>
+          <div class="stat-value" id="cancelledOrdersCount">0</div>
+        </div>
+        <div class="stat-card purple">
+          <div class="stat-label">Pending Orders</div>
+          <div class="stat-value" id="pendingOrdersCount">0</div>
+        </div>
+      </section>
+
+      <section class="dashboard-two-col">
+        <div class="panel">
+          <div class="panel-head"><div><h3>Events</h3><p>Event, total orders, and source are visible here. Click a card to open its matching orders.</p></div></div>
+          <div id="eventSummaryCards" class="event-summary-list"></div>
+        </div>
+        <div>
+          <div class="panel" style="margin-top:18px;">
+            <div class="panel-head"><div><h3>Recent Orders Sent to Telegram</h3><p>Latest 10 sent alerts</p></div></div>
+            <div class="table-wrap short-table compact-table-wrap">
+              <table>
+                <thead><tr><th>ID</th><th>Name</th><th>Event</th><th>Sale Date</th><th>Source</th></tr></thead>
+                <tbody id="recentSentBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section id="ordersTab" class="tab-page">
+      <header class="topbar compact">
+        <div>
+          <h1>Orders</h1>
+          <p>Click an event + source card to see only those orders.</p>
+        </div>
+      </header>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div><h3>Events by Source</h3><p>Click a match and source to view only those orders.</p></div>
+          <div class="inline-actions"><button class="btn btn-secondary btn-small" onclick="clearEventFilter()">Reset Filter</button></div>
+        </div>
+        <div id="ordersEventList" class="event-summary-list"></div>
+      </div>
+
+      <div class="panel" style="margin-top:18px;">
+        <div class="panel-head">
+          <div><h3 id="ordersTableTitle">All Orders</h3><p id="ordersTableSub">Showing ID, Name, Event, Sale Date, and Source.</p></div>
+        </div>
+        <div class="table-wrap short-table">
+          <table>
+            <thead>
+              <tr><th>ID</th><th>Name</th><th>Event</th><th>Sale Date</th><th>Source</th></tr>
+            </thead>
+            <tbody id="filteredOrdersBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="customersTab" class="tab-page">
+      <header class="topbar compact"><div><h1>Customers</h1><p>Most useful customer summary only</p></div></header>
+      <div class="panel"><div class="panel-head"><div><h3>Customer Analytics</h3></div></div>
+        <div class="table-wrap short-table"><table><thead><tr><th>Customer</th><th>Total Orders</th><th>Distinct Events</th><th>Platforms</th><th>Next Event Date</th></tr></thead><tbody id="customersBody"></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="activityTab" class="tab-page">
+      <header class="topbar compact"><div><h1>Activity</h1><p>Distinct upcoming events, sorted by event date</p></div></header>
+      <div class="panel"><div class="panel-head"><div><h3>Event Activity</h3></div></div>
+        <div class="table-wrap short-table"><table><thead><tr><th>Source</th><th>Event</th><th>Event Date</th></tr></thead><tbody id="activityBody"></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="settingsTab" class="tab-page">
+      <header class="topbar compact"><div><h1>Settings</h1><p>Only controls and access, no clutter</p></div></header>
+      <div class="settings-grid">
+        <div class="panel"><div class="panel-head"><div><h3>Appearance</h3></div></div>
+          <div class="btn-grid"><button class="btn btn-secondary" onclick="setTheme('light')">Light Mode</button><button class="btn btn-secondary" onclick="setTheme('dark')">Dark Mode</button></div>
+        </div>
+        <div class="panel"><div class="panel-head"><div><h3>Control Center</h3></div></div>
+          <label class="control-label" for="intervalMinutesSettings">Check Interval (minutes)</label>
+          <input id="intervalMinutesSettings" class="interval-input" type="number" min="1" value="30">
+          <div class="btn-grid"><button class="btn btn-start" onclick="startBot()">Start</button><button class="btn btn-stop" onclick="stopBot()">Stop</button><button class="btn btn-secondary" onclick="saveSettingsFromSettings()">Save</button><button class="btn btn-secondary" onclick="checkNow()">Check</button></div>
+          <button id="sleepToggleSettings" class="btn btn-secondary full-btn" onclick="toggleSetting('sleep_window_enabled')">Sleep 12AM</button>
+        </div>
+        <div class="panel"><div class="panel-head"><div><h3>Add Member</h3></div></div>
+          <div class="member-form"><label class="control-label" for="memberUsername">Username</label><input id="memberUsername" class="interval-input" type="text" placeholder="Enter username"><label class="control-label" for="memberPassword">Password</label><input id="memberPassword" class="interval-input" type="password" placeholder="Enter password"><label class="control-label" for="memberRole">Role</label><select id="memberRole" class="interval-input"><option value="member">Member</option><option value="admin">Admin</option></select><button class="btn btn-secondary full-btn" onclick="addMember()">Add Member</button></div>
+        </div>
+        <div class="panel"><div class="panel-head"><div><h3>Member Manager</h3></div></div>
+          <div class="table-wrap short-table"><table><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="membersBody"></tbody></table></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="orderDrawerBackdrop" class="drawer-backdrop hidden" onclick="closeOrderDrawer()"></div>
+
+  <aside id="orderDrawer" class="order-drawer hidden">
+    <div class="order-drawer-header">
+      <div>
+        <div class="drawer-kicker">Order Inspector</div>
+        <h2 id="drawerOrderTitle">Order Details</h2>
+        <p id="drawerOrderSub">Click an order ID to inspect ticket details</p>
+      </div>
+      <button class="drawer-close" onclick="closeOrderDrawer()">✕</button>
+    </div>
+
+    <div id="orderDrawerBody" class="order-drawer-body">
+      <div class="drawer-empty">
+        Select an order to view ticket information.
+      </div>
+    </div>
+  </aside>
+
+  <script src="{{ url_for('static', filename='app.js') }}?v=26"></script>
+</body>
+</html>
