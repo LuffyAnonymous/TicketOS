@@ -82,7 +82,7 @@ def register_routes(app):
             context.state.log(f"Auto-cache launch error: {e}")
         try:
             from config import TICKETSSHOP_RESULTS_FILE
-            from utils.helpers import load_json_file
+            from core.storage import load_json_file
             ts_cache = load_json_file(TICKETSSHOP_RESULTS_FILE, {})
         except:
             ts_cache = {}
