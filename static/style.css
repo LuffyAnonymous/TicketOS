@@ -988,6 +988,14 @@ body.dark .order-link-btn{
 .event-card-meta-simple{font-size:13px;color:var(--muted);font-weight:700;}
 
 .event-card-breakdown{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
-.event-breakdown-item{border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:var(--card)}
-.event-breakdown-label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;font-weight:700}
 .event-breakdown-item strong{font-size:14px;color:var(--text);word-break:break-word}
+
+/* Toggle Switch Styles */
+.switch input:checked + .slider { background-color: #10b981 !important; }
+.switch input:focus + .slider { box-shadow: 0 0 1px #10b981; }
+.switch input:checked + .slider:before { transform: translateX(20px); }
+.slider:before {
+  position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px;
+  background-color: white; transition: .4s; border-radius: 50%;
+}
+

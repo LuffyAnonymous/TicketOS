@@ -242,6 +242,64 @@ def register_routes(app):
         return jsonify({"ok": True})
 
 
+    @app.post("/api/check-ticketsshop")
+    @login_required
+    def api_check_ticketsshop():
+        try:
+            from config import SENT_TICKETSSHOP_FILE
+            from core.storage import load_json_file, save_json_file
+            from services.inventory_service import check_ticketsshop_bulk
+            from services.telegram_service import send_telegram
+
+            context.state.log("Ticketsshop check started...")
+
+            checked_ids = load_json_file(SENT_TICKETSSHOP_FILE, [])
+            if not isinstance(checked_ids, list):
+                checked_ids = []
+
+            all_rows = context.state.sent_order_rows
+            ltg_rows = [r for r in all_rows if r.get("source") == "LiveTicketGroup"]
+            
+            to_check = [r for r in ltg_rows if str(r.get("id")) not in checked_ids]
+            
+            # Limit to 10 to avoid huge timeouts on frontend
+            to_check = to_check[:10]
+
+            if not to_check:
+                context.state.log("Ticketsshop check: No new unchecked orders found.")
+                return jsonify({"ok": True, "message": "Ticketsshop checked", "new_orders": []})
+
+            missing_orders = check_ticketsshop_bulk(to_check)
+
+            for r in to_check:
+                checked_ids.append(str(r.get("id")))
+            
+            save_json_file(SENT_TICKETSSHOP_FILE, list(set(checked_ids)))
+
+            for m_order in missing_orders:
+                msg = (
+                    f"**Missing Inventory Alert**\n\n"
+                    f"The order `{m_order.get('id')}` from LiveTicketGroup "
+                    f"({m_order.get('event')}) is NOT listed in the TicketsShop system. "
+                    f"Please add it."
+                )
+                send_telegram(msg)
+                
+            context.state.log(f"Ticketsshop check finished. Found {len(missing_orders)} missing order(s).")
+
+            return jsonify({
+                "ok": True, 
+                "message": "Ticketsshop checked", 
+                "new_orders": missing_orders
+            })
+        except Exception as e:
+            import traceback
+            err_trace = traceback.format_exc()
+            context.state.log(f"Ticketsshop API Error: {str(e)}")
+            print(f"Ticketsshop API Error:\n{err_trace}")
+            return jsonify({"error": str(e), "trace": err_trace}), 500
+
+
     @app.post("/api/settings")
     @login_required
     def api_settings():

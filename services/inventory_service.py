@@ -13,21 +13,37 @@ def check_ticketsshop_for_order(event_name, order_id):
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            context = browser.new_context()
+            
+            import os
+            state_file = "ticketsshop_state.json"
+            
+            # Load session if it exists to avoid repeated logins
+            if os.path.exists(state_file):
+                context = browser.new_context(storage_state=state_file)
+            else:
+                context = browser.new_context()
+                
             page = context.new_page()
             
-            # 1. Login
-            page.goto("https://ticketsshop.net/AppUserLogin")
-            page.fill('input[type="email"]', username)
-            page.fill('input[type="password"]', password)
-            page.click('button:has-text("Sign In")')
-            
-            # Wait for any page to load after login
-            page.wait_for_load_state("networkidle", timeout=15000)
-            time.sleep(2)
-            
-            # 2. Go to Matches page
+            # Try going directly to the Matches page
             page.goto("https://ticketsshop.net/matches")
+            page.wait_for_load_state("networkidle", timeout=15000)
+            
+            # If we were redirected to the login page, the session is expired or missing
+            if "AppUserLogin" in page.url:
+                page.fill('input[type="email"]', username)
+                page.fill('input[type="password"]', password)
+                page.click('button:has-text("Sign In")')
+                
+                page.wait_for_load_state("networkidle", timeout=15000)
+                time.sleep(2)
+                
+                # Save the new session to disk so we don't have to log in next time
+                context.storage_state(path=state_file)
+                
+                # Navigate to matches now that we are logged in
+                page.goto("https://ticketsshop.net/matches")
+                page.wait_for_load_state("networkidle", timeout=15000)
             page.wait_for_selector('input[placeholder="Search matches..."]')
             
             # Split teams to make search more robust
@@ -68,3 +84,79 @@ def check_ticketsshop_for_order(event_name, order_id):
     except Exception as e:
         print(f"Error checking ticketsshop: {e}")
         return None
+
+def check_ticketsshop_bulk(orders_to_check):
+    """
+    Takes a list of order dicts. Returns a list of new/missing orders.
+    """
+    missing = []
+    username = "arvin@gmail.com"
+    password = "AHSseoi38d"
+    
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            import os
+            state_file = "ticketsshop_state.json"
+            
+            if os.path.exists(state_file):
+                context = browser.new_context(storage_state=state_file)
+            else:
+                context = browser.new_context()
+                
+            page = context.new_page()
+            
+            page.goto("https://ticketsshop.net/matches")
+            page.wait_for_load_state("networkidle", timeout=15000)
+            
+            if "AppUserLogin" in page.url:
+                page.fill('input[type="email"]', username)
+                page.fill('input[type="password"]', password)
+                page.click('button:has-text("Sign In")')
+                
+                page.wait_for_load_state("networkidle", timeout=15000)
+                time.sleep(2)
+                context.storage_state(path=state_file)
+                
+                page.goto("https://ticketsshop.net/matches")
+                page.wait_for_load_state("networkidle", timeout=15000)
+                
+            for order in orders_to_check:
+                event_name = order.get('event', '')
+                order_id = str(order.get('id', ''))
+                
+                page.goto("https://ticketsshop.net/matches")
+                page.wait_for_selector('input[placeholder="Search matches..."]')
+                
+                teams = event_name.split(' vs ')
+                search_query = event_name
+                if len(teams) == 2:
+                    search_query = f"{teams[0].strip()} vs {teams[1].strip()}"
+                    
+                page.fill('input[placeholder="Search matches..."]', search_query)
+                time.sleep(2) 
+                
+                first_team = teams[0].strip() if len(teams) > 0 else event_name
+                match_row = page.locator(f"div:has-text('{first_team}')").first
+                
+                if match_row.count() > 0:
+                    match_row.click()
+                    page.wait_for_selector('input[placeholder*="Search by account"]', timeout=15000)
+                    
+                    page.fill('input[placeholder*="Search by account"]', order_id)
+                    time.sleep(2)
+                    
+                    page_text = page.locator("body").inner_text()
+                    
+                    if order_id in page_text and "Live Football Tickets" in page_text:
+                        pass # listed
+                    else:
+                        missing.append(order)
+                else:
+                    missing.append(order)
+                    
+            browser.close()
+            return missing
+    except Exception as e:
+        print(f"Error checking ticketsshop bulk: {e}")
+        return []

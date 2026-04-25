@@ -59,6 +59,7 @@ SETTINGS_FILE = os.path.join(BASE_DIR, "combined_alert_settings.json")
 ORDER_SEEN_FILE = os.path.join(BASE_DIR, "seen_orders.json")
 ORDER_STATE_FILE = os.path.join(BASE_DIR, "platform_states.json")
 SENT_ORDERS_FILE = os.path.join(BASE_DIR, "sent_orders.json")
+SENT_TICKETSSHOP_FILE = os.path.join(BASE_DIR, "sent_ticketsshop_orders.json")
 USERS_FILE = os.path.join(BASE_DIR, "users.json")
 ORDER_DETAILS_CACHE_FILE = os.path.join(BASE_DIR, "order_details_cache.json")
 

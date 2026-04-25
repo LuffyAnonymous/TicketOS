@@ -85,26 +85,6 @@ def check_all_platforms_once(seen_orders):
         context.state.set_last_alert()
         context.state.log(f"New order sent -> {order_key}")
         
-        # 2. Spawn background thread for TicketsShop verification
-        if latest_order.get("source") == "LiveTicketGroup":
-            def verify_inventory(order_details):
-                try:
-                    from services.inventory_service import check_ticketsshop_for_order
-                    is_listed = check_ticketsshop_for_order(order_details["event"], order_details["id"])
-                    if is_listed is False:
-                        # Follow-up ping if NOT listed
-                        msg = (
-                            f"**Missing Inventory Alert**\n\n"
-                            f"The order `{order_details['id']}` from LiveTicketGroup "
-                            f"({order_details['event']}) is NOT listed in the TicketsShop system. "
-                            f"Please add it."
-                        )
-                        send_telegram(msg)
-                except Exception as e:
-                    context.state.log(f"TicketsShop check error: {e}")
-            
-            threading.Thread(target=verify_inventory, args=(latest_order,), daemon=True).start()
-            
     else:
         context.state.upsert_sent_order_row(latest_order)
         context.state.log("No new latest order")

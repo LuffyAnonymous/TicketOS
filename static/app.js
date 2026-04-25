@@ -208,6 +208,19 @@ async function refresh(){
   const inact=document.getElementById('inactivityInfo'); if(inact) inact.textContent=`${data.inactivity_minutes||20} min inactivity`;
   const interval=document.getElementById('intervalMinutesSettings'); if(interval) interval.value=data.summary.settings?.interval_minutes??30;
   
+  const monitoringToggle = document.getElementById('monitoringToggle');
+  const statusText = document.getElementById('monitoringStatusText');
+  if(monitoringToggle && statusText) {
+    monitoringToggle.checked = data.summary.running;
+    if(data.summary.running) {
+      statusText.innerText = "Monitoring ON";
+      statusText.style.color = "#10b981";
+    } else {
+      statusText.innerText = "Monitoring OFF";
+      statusText.style.color = "var(--muted)";
+    }
+  }
+  
   setStatusText(data.summary.status||'Stopped'); setSleepButtons(data.summary.settings?.sleep_window_enabled); renderSourceBreakdown(data.summary.source_counts||{}); renderRecentSent(latestSentData); renderMembers(data.members||[]); refreshDerivedViews();
   
   try {
@@ -223,6 +236,31 @@ async function refresh(){
 async function startBot(){ try{ await api('/api/start',{method:'POST'}); await fullRefresh(); }catch(e){ alert(e.message);} }
 async function stopBot(){ try{ await api('/api/stop',{method:'POST'}); await fullRefresh(); }catch(e){ alert(e.message);} }
 async function checkNow(){ try{ await api('/api/check-now',{method:'POST'}); setTimeout(fullRefresh,1000);}catch(e){ alert(e.message);} }
+
+async function toggleMonitoring() {
+  const toggle = document.getElementById('monitoringToggle');
+  if(toggle.checked) {
+    await startBot();
+  } else {
+    await stopBot();
+  }
+}
+
+async function checkTicketsshopOrders() {
+  const btn = document.getElementById('btnCheckTicketsshop');
+  if(!btn) return;
+  const originalText = btn.innerHTML;
+  btn.innerHTML = 'CHECKING...';
+  btn.disabled = true;
+  try {
+    await api('/api/check-ticketsshop', {method:'POST'});
+  } catch(e) {
+    alert(`Error checking Ticketsshop: ${e.message}`);
+  }
+  btn.innerHTML = originalText;
+  btn.disabled = false;
+  setTimeout(fullRefresh, 1000);
+}
 async function toggleSetting(name){ try{ await api('/api/toggle-setting',{method:'POST', body:JSON.stringify({name})}); await refresh(); }catch(e){ alert(e.message);} }
 async function saveSettingsFromSettings(){ try{ await api('/api/settings',{method:'POST',body:JSON.stringify({interval_minutes:document.getElementById('intervalMinutesSettings').value})}); await refresh(); }catch(e){ alert(e.message);} }
 async function addMember(){ try{ if(currentRole!=='admin'){ alert('Admin access required'); return; } const username=document.getElementById('memberUsername').value.trim(); const password=document.getElementById('memberPassword').value.trim(); const role=document.getElementById('memberRole').value; if(!username||!password){ alert('Username and password are required'); return; } await api('/api/users/add',{method:'POST',body:JSON.stringify({username,password,role})}); document.getElementById('memberUsername').value=''; document.getElementById('memberPassword').value=''; document.getElementById('memberRole').value='member'; await refresh(); alert('Member added successfully'); }catch(e){ alert(e.message);} }
