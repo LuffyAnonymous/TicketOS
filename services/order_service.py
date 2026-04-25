@@ -20,8 +20,13 @@ def build_order_message(order):
     # For now, link to the dashboard, and maybe the user can just search or click the order
     link = f"{app_url}"
     
+    if source.lower() == "liveticketgroup":
+        title = "New Live order detected"
+    else:
+        title = "        NEW ORDER"
+
     return (
-        f"        NEW ORDER\n"
+        f"{title}\n"
         f"SOURCE: {source}\n"
         f"ID: {order_id}\n"
         f"CUSTOMER: {order.get('customer', '-')}\n"

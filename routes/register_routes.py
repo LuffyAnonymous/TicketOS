@@ -94,11 +94,14 @@ def register_routes(app):
                 order_id = str(order_copy.get("id"))
                 ts_info = ts_cache.get(order_id)
                 if isinstance(ts_info, dict):
-                    order_copy["ts_status"] = ts_info.get("status")
-                    order_copy["ts_date"] = ts_info.get("date")
+                    order_copy["ticketsshop_status"] = ts_info.get("status", "unchecked")
                 else:
-                    order_copy["ts_status"] = ts_info
-                    order_copy["ts_date"] = None
+                    order_copy["ticketsshop_status"] = ts_info if ts_info else "unchecked"
+                    
+                if order_copy["ticketsshop_status"] == "listed":
+                    order_copy["dashboard_status"] = "processed"
+                else:
+                    order_copy["dashboard_status"] = "pending"
             orders.append(order_copy)
 
         return jsonify({

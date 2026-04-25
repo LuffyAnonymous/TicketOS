@@ -197,15 +197,12 @@ class AppState:
             if "liveticketgroup" in source.lower():
                 ts_info = ts_cache.get(order_id)
                 if isinstance(ts_info, dict):
-                    ts_status = ts_info.get("status")
-                    ts_date = ts_info.get("date")
+                    ts_status = ts_info.get("status", "unchecked")
                 else:
-                    ts_status = ts_info
-                    ts_date = None
+                    ts_status = ts_info if ts_info else "unchecked"
 
                 if ts_status == "listed":
-                    if ts_date == today_str:
-                        status_counts["processed"] += 1
+                    status_counts["processed"] += 1
                 else:
                     if not is_cancelled:
                         status_counts["pending"] += 1

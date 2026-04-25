@@ -201,22 +201,15 @@ function refreshDerivedViews() {
   let filteredData = latestOrdersData;
 
   if (currentDashboardFilter === 'processed') {
-      // Get local YYYY-MM-DD
-      const date = new Date();
-      const yr = date.getFullYear();
-      const mo = String(date.getMonth() + 1).padStart(2, '0');
-      const da = String(date.getDate()).padStart(2, '0');
-      const todayStr = `${yr}-${mo}-${da}`;
-
       filteredData = latestOrdersData.filter(o => 
           (o.source || '').toLowerCase().includes('liveticketgroup') && 
-          o.ts_status === 'listed' && o.ts_date === todayStr
+          o.dashboard_status === 'processed'
       );
   } else if (currentDashboardFilter === 'pending') {
       filteredData = latestOrdersData.filter(o => {
           const s = (o.source || '').toLowerCase();
           const st = (o.status || '').toLowerCase();
-          return s.includes('liveticketgroup') && o.ts_status !== 'listed' && !st.includes('cancel');
+          return s.includes('liveticketgroup') && o.dashboard_status === 'pending' && !st.includes('cancel');
       });
   }
 
