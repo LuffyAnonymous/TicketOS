@@ -3,7 +3,7 @@ let dayChartInstance = null;
 let latestOrdersData = [];
 let latestSentData = [];
 let monitoringToggle = false;
-let currentDashboardFilter = 'all';
+let currentDashboardFilter = 'pending';
 let currentRole = "member";
 let currentUser = "";
 let selectedEvent = null;
@@ -12,6 +12,20 @@ let orderDetailsCache = {};
 
 function filterDashboardTable(type) {
     currentDashboardFilter = type;
+    
+    const cards = document.querySelectorAll('.stat-card.clickable');
+    cards.forEach(c => c.classList.remove('active-filter'));
+    if(type === 'all') document.getElementById('cardTotal')?.classList.add('active-filter');
+    if(type === 'processed') document.getElementById('cardProcessed')?.classList.add('active-filter');
+    if(type === 'pending') document.getElementById('cardPending')?.classList.add('active-filter');
+
+    const subtitle = document.getElementById('orderDetailsSubtitle');
+    if(subtitle) {
+        if(type === 'all') subtitle.textContent = 'All Orders';
+        if(type === 'processed') subtitle.textContent = 'Processed Orders';
+        if(type === 'pending') subtitle.textContent = 'Pending Orders';
+    }
+
     refreshDerivedViews();
 }
 
@@ -86,7 +100,7 @@ function renderRecentSent(rows){
   const body = document.getElementById('recentSentBody'); 
   if(!body) return; 
   if(!rows.length){ 
-    body.innerHTML='<tr><td colspan="3" class="muted">No recent sent orders</td></tr>'; 
+    body.innerHTML='<tr><td colspan="3" class="muted">No orders found for this filter</td></tr>'; 
     return; 
   } 
   body.innerHTML = rows.map(r => `<tr>
@@ -210,6 +224,7 @@ function refreshDerivedViews() {
   renderEventAccordion(groups);
   renderCustomerAnalytics(filteredData);
   renderActivity(filteredData);
+  renderRecentSent(filteredData);
 }
 
 async function refresh(){
@@ -250,7 +265,7 @@ async function refresh(){
     }
   }
   
-  setStatusText(data.summary.status||'Stopped'); setSleepButtons(data.summary.settings?.sleep_window_enabled); renderSourceBreakdown(data.summary.source_counts||{}); renderRecentSent(latestSentData); renderMembers(data.members||[]); refreshDerivedViews();
+  setStatusText(data.summary.status||'Stopped'); setSleepButtons(data.summary.settings?.sleep_window_enabled); renderSourceBreakdown(data.summary.source_counts||{}); renderMembers(data.members||[]); refreshDerivedViews();
   
   try {
     const totalsResponse = await api('/api/event-totals');

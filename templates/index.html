@@ -66,11 +66,11 @@
       </header>
 
       <section class="stats-grid">
-        <div class="stat-card blue clickable" onclick="filterDashboardTable('all')" title="Click to show all orders">
+        <div class="stat-card blue clickable" id="cardTotal" onclick="filterDashboardTable('all')" title="Click to show all orders">
           <div class="stat-label">Total Orders</div>
           <div class="stat-value" id="totalOrdersCount">0</div>
         </div>
-        <div class="stat-card green clickable" onclick="filterDashboardTable('processed')">
+        <div class="stat-card green clickable" id="cardProcessed" onclick="filterDashboardTable('processed')">
           <div class="stat-label">Processed Orders</div>
           <div class="stat-value" id="processedOrdersCount">0</div>
         </div>
@@ -78,7 +78,7 @@
           <div class="stat-label">Cancelled Orders</div>
           <div class="stat-value" id="cancelledOrdersCount">0</div>
         </div>
-        <div class="stat-card purple clickable" onclick="filterDashboardTable('pending')">
+        <div class="stat-card purple clickable active-filter" id="cardPending" onclick="filterDashboardTable('pending')">
           <div class="stat-label">Pending Orders</div>
           <div class="stat-value" id="pendingOrdersCount">0</div>
         </div>
@@ -107,7 +107,7 @@
         </div>
         <div>
           <div class="panel">
-            <div class="panel-head"><div><h3>Recent Incoming Orders</h3><p>Latest 10 sent alerts</p></div></div>
+            <div class="panel-head"><div><h3>Order Details</h3><p id="orderDetailsSubtitle">Pending Orders</p></div></div>
             <div class="table-wrap short-table compact-table-wrap">
               <table>
                 <thead><tr><th>ID</th><th>Event</th><th>Source</th></tr></thead>
