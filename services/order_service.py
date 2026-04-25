@@ -21,13 +21,12 @@ def build_order_message(order):
     link = f"{app_url}"
     
     return (
-        f"**NEW ORDER**\n\n"
-        f"*Event:* {event_name}\n"
-        f"*Source:* {source}\n"
-        f"*Order ID:* `{order_id}`\n"
-        f"*Customer:* {order.get('customer', '-')}\n"
-        f"*Sale Date:* {order.get('sale_date', '-')}\n\n"
-        f"[View in OrderTicketMonitor]({link})"
+        f"        NEW ORDER\n"
+        f"SOURCE: {source}\n"
+        f"ID: {order_id}\n"
+        f"CUSTOMER: {order.get('customer', '-')}\n"
+        f"EVENT: {event_name}\n"
+        f"SALE DATE: {order.get('sale_date', '-')}"
     )
 
 
