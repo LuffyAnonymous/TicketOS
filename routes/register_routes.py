@@ -280,7 +280,7 @@ def register_routes(app):
 
             from core.helpers import is_event_expired
 
-            all_rows = context.state.sent_order_rows
+            all_rows = context.state.current_order_rows
             
             # Filter LTG orders and ignore those whose event_date is in the past
             ltg_rows = [

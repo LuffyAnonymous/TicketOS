@@ -183,7 +183,7 @@ class AppState:
             source_counts[source] = source_counts.get(source, 0) + 1
 
         cache = load_order_details_cache()
-        for row in self.sent_order_rows:
+        for row in self.current_order_rows:
             source = clean_text(row.get("source", "Unknown")) or "Unknown"
             order_id = clean_text(row.get("id", ""))
             details = cache.get(f"{source}::{order_id}", {})
