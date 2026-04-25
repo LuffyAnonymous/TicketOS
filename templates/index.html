@@ -51,26 +51,26 @@
           <h1 id="greetingText">Hello 👋</h1>
           <p>Clean control view for orders grouped by event and source</p>
         </div>
-        <div class="top-actions" style="display: flex; align-items: center; gap: 12px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; background: var(--card); padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border); gap: 12px;">
-            <span id="monitoringStatusText" style="font-size: 13px; font-weight: 700; color: var(--muted);">Monitoring OFF</span>
-            <label class="switch" style="position: relative; display: inline-block; width: 44px; height: 24px; margin: 0;">
-              <input type="checkbox" id="monitoringToggle" onchange="toggleMonitoring()" style="opacity: 0; width: 0; height: 0;">
-              <span class="slider round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--muted); transition: .4s; border-radius: 24px;"></span>
+        <div class="top-actions top-actions-wrapper">
+          <div class="monitoring-control">
+            <span id="monitoringStatusText">Monitoring OFF</span>
+            <label class="switch">
+              <input type="checkbox" id="monitoringToggle" onchange="toggleMonitoring()">
+              <span class="slider round"></span>
             </label>
           </div>
-          <button class="btn btn-secondary" style="height: 42px; border-radius: 12px; color: #6366f1; border-color: rgba(99, 102, 241, 0.4); font-weight: 800; font-size: 11px; padding: 0 16px;" onclick="checkTicketsshopOrders()" id="btnCheckTicketsshop">
+          <button class="btn btn-ticketsshop" onclick="checkTicketsshopOrders()" id="btnCheckTicketsshop">
             CHECK TICKETSSHOP LISTINGS
           </button>
         </div>
       </header>
 
       <section class="stats-grid">
-        <div class="stat-card blue">
+        <div class="stat-card blue clickable" onclick="filterDashboardTable('all')" title="Click to show all orders">
           <div class="stat-label">Total Orders</div>
           <div class="stat-value" id="totalOrdersCount">0</div>
         </div>
-        <div class="stat-card green">
+        <div class="stat-card green clickable" onclick="filterDashboardTable('processed')">
           <div class="stat-label">Processed Orders</div>
           <div class="stat-value" id="processedOrdersCount">0</div>
         </div>
@@ -78,7 +78,7 @@
           <div class="stat-label">Cancelled Orders</div>
           <div class="stat-value" id="cancelledOrdersCount">0</div>
         </div>
-        <div class="stat-card purple">
+        <div class="stat-card purple clickable" onclick="filterDashboardTable('pending')">
           <div class="stat-label">Pending Orders</div>
           <div class="stat-value" id="pendingOrdersCount">0</div>
         </div>

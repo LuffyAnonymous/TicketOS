@@ -80,10 +80,31 @@ def register_routes(app):
             launch_auto_cache_if_needed(context.state.current_order_rows)
         except Exception as e:
             context.state.log(f"Auto-cache launch error: {e}")
+        try:
+            from config import TICKETSSHOP_RESULTS_FILE
+            from utils.helpers import load_json_file
+            ts_cache = load_json_file(TICKETSSHOP_RESULTS_FILE, {})
+        except:
+            ts_cache = {}
+
+        orders = []
+        for r in context.state.current_order_rows:
+            order_copy = dict(r)
+            if "liveticketgroup" in clean_text(order_copy.get("source", "Unknown")).lower():
+                order_id = str(order_copy.get("id"))
+                ts_info = ts_cache.get(order_id)
+                if isinstance(ts_info, dict):
+                    order_copy["ts_status"] = ts_info.get("status")
+                    order_copy["ts_date"] = ts_info.get("date")
+                else:
+                    order_copy["ts_status"] = ts_info
+                    order_copy["ts_date"] = None
+            orders.append(order_copy)
+
         return jsonify({
             "summary": context.state.summary(),
             "logs": context.state.logs[-250:],
-            "orders": context.state.current_order_rows,
+            "orders": orders,
             "sent_orders": context.state.sent_order_rows,
             "members": user_list,
             "current_user": g.current_user.get("username", ""),
@@ -271,7 +292,12 @@ def register_routes(app):
             to_check = []
             for r in ltg_rows:
                 order_id = str(r.get("id"))
-                status = results_cache.get(order_id)
+                status_val = results_cache.get(order_id)
+                if isinstance(status_val, dict):
+                    status = status_val.get("status")
+                else:
+                    status = status_val
+
                 if status != "listed":
                     to_check.append(r)
             
@@ -286,31 +312,44 @@ def register_routes(app):
             check_results = check_ticketsshop_bulk(to_check)
             listed_orders = check_results.get("listed", [])
             missing_orders = check_results.get("missing", [])
+            
+            listed_order_ids = []
+            missing_order_ids = []
 
             for m_order in listed_orders:
                 order_id = str(m_order.get("id"))
-                if results_cache.get(order_id) != "listed":
-                    msg = (
+                status_val = results_cache.get(order_id)
+                if isinstance(status_val, dict):
+                    old_status = status_val.get("status")
+                else:
+                    old_status = status_val
+
+                if old_status != "listed":
+                    listed_order_ids.append(order_id)
+                    send_telegram(
                         f"✅ LISTED IN TICKETSSHOP\n"
                         f"Live Order: {order_id}\n"
                         f"Event: {m_order.get('event')}"
                     )
-                    send_telegram(msg)
-                results_cache[order_id] = "listed"
+                results_cache[order_id] = {"status": "listed", "date": datetime.now().strftime("%Y-%m-%d")}
 
             for m_order in missing_orders:
                 order_id = str(m_order.get("id"))
-                # Only alert again if it wasn't already missing, or just alert every time?
-                # User said: "Do not send the same Ticketsshop check result repeatedly unless the result changed."
-                if results_cache.get(order_id) != "missing":
-                    msg = (
+                status_val = results_cache.get(order_id)
+                if isinstance(status_val, dict):
+                    old_status = status_val.get("status")
+                else:
+                    old_status = status_val
+
+                if old_status != "missing":
+                    missing_order_ids.append(order_id)
+                    send_telegram(
                         f"⚠️ MISSING IN TICKETSSHOP\n"
                         f"Live Order: {order_id}\n"
                         f"Event: {m_order.get('event')}\n"
                         f"Action: Please list/check this order."
                     )
-                    send_telegram(msg)
-                results_cache[order_id] = "missing"
+                results_cache[order_id] = {"status": "missing", "date": datetime.now().strftime("%Y-%m-%d")}
             
             save_json_file(TICKETSSHOP_RESULTS_FILE, results_cache)
 

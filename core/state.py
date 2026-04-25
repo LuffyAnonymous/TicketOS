@@ -168,6 +168,16 @@ class AppState:
         source_counts = {}
         status_counts = {"processed": 0, "cancelled": 0, "pending": 0}
 
+        import datetime
+        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        
+        try:
+            from config import TICKETSSHOP_RESULTS_FILE
+            from utils.helpers import load_json_file
+            ts_cache = load_json_file(TICKETSSHOP_RESULTS_FILE, {})
+        except:
+            ts_cache = {}
+
         for row in self.current_order_rows:
             source = clean_text(row.get("source", "Unknown")) or "Unknown"
             source_counts[source] = source_counts.get(source, 0) + 1
@@ -178,12 +188,27 @@ class AppState:
             order_id = clean_text(row.get("id", ""))
             details = cache.get(f"{source}::{order_id}", {})
             status_text = clean_text(details.get("status", row.get("status", ""))).lower()
-            if "cancel" in status_text:
+            
+            is_cancelled = "cancel" in status_text
+
+            if is_cancelled:
                 status_counts["cancelled"] += 1
-            elif "process" in status_text or "complete" in status_text:
-                status_counts["processed"] += 1
-            else:
-                status_counts["pending"] += 1
+                
+            if "liveticketgroup" in source.lower():
+                ts_info = ts_cache.get(order_id)
+                if isinstance(ts_info, dict):
+                    ts_status = ts_info.get("status")
+                    ts_date = ts_info.get("date")
+                else:
+                    ts_status = ts_info
+                    ts_date = None
+
+                if ts_status == "listed":
+                    if ts_date == today_str:
+                        status_counts["processed"] += 1
+                else:
+                    if not is_cancelled:
+                        status_counts["pending"] += 1
 
         return {
             "running": self.running,
