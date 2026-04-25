@@ -253,7 +253,10 @@ async function checkTicketsshopOrders() {
   btn.innerHTML = 'CHECKING...';
   btn.disabled = true;
   try {
-    await api('/api/check-ticketsshop', {method:'POST'});
+    const res = await api('/api/check-ticketsshop-listings', {method:'POST'});
+    if(res.ok) {
+      alert(`Ticketsshop check complete.\nChecked: ${res.checked}\nListed: ${res.listed ? res.listed.length : 0}\nMissing: ${res.missing ? res.missing.length : 0}`);
+    }
   } catch(e) {
     alert(`Error checking Ticketsshop: ${e.message}`);
   }

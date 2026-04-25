@@ -87,8 +87,9 @@ def check_ticketsshop_for_order(event_name, order_id):
 
 def check_ticketsshop_bulk(orders_to_check):
     """
-    Takes a list of order dicts. Returns a list of new/missing orders.
+    Takes a list of order dicts. Returns a dictionary with 'listed' and 'missing' lists.
     """
+    listed = []
     missing = []
     username = "arvin@gmail.com"
     password = "AHSseoi38d"
@@ -126,7 +127,7 @@ def check_ticketsshop_bulk(orders_to_check):
                 order_id = str(order.get('id', ''))
                 
                 page.goto("https://ticketsshop.net/matches")
-                page.wait_for_selector('input[placeholder="Search matches..."]')
+                page.wait_for_selector('input[placeholder="Search matches..."]', timeout=15000)
                 
                 teams = event_name.split(' vs ')
                 search_query = event_name
@@ -149,14 +150,14 @@ def check_ticketsshop_bulk(orders_to_check):
                     page_text = page.locator("body").inner_text()
                     
                     if order_id in page_text and "Live Football Tickets" in page_text:
-                        pass # listed
+                        listed.append(order)
                     else:
                         missing.append(order)
                 else:
                     missing.append(order)
                     
             browser.close()
-            return missing
+            return {"listed": listed, "missing": missing}
     except Exception as e:
         print(f"Error checking ticketsshop bulk: {e}")
-        return []
+        return {"listed": [], "missing": []}

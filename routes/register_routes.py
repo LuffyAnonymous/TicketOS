@@ -242,55 +242,78 @@ def register_routes(app):
         return jsonify({"ok": True})
 
 
-    @app.post("/api/check-ticketsshop")
+    @app.post("/api/check-ticketsshop-listings")
     @login_required
     def api_check_ticketsshop():
         try:
-            from config import SENT_TICKETSSHOP_FILE
+            from config import TICKETSSHOP_RESULTS_FILE
             from core.storage import load_json_file, save_json_file
             from services.inventory_service import check_ticketsshop_bulk
             from services.telegram_service import send_telegram
 
             context.state.log("Ticketsshop check started...")
 
-            checked_ids = load_json_file(SENT_TICKETSSHOP_FILE, [])
-            if not isinstance(checked_ids, list):
-                checked_ids = []
+            results_cache = load_json_file(TICKETSSHOP_RESULTS_FILE, {})
+            if not isinstance(results_cache, dict):
+                results_cache = {}
 
             all_rows = context.state.sent_order_rows
             ltg_rows = [r for r in all_rows if r.get("source") == "LiveTicketGroup"]
             
-            to_check = [r for r in ltg_rows if str(r.get("id")) not in checked_ids]
+            # We want to check LTG orders that are either unchecked or previously marked as missing.
+            to_check = []
+            for r in ltg_rows:
+                order_id = str(r.get("id"))
+                status = results_cache.get(order_id)
+                if status != "listed":
+                    to_check.append(r)
             
             # Limit to 10 to avoid huge timeouts on frontend
             to_check = to_check[:10]
 
             if not to_check:
-                context.state.log("Ticketsshop check: No new unchecked orders found.")
-                return jsonify({"ok": True, "message": "Ticketsshop checked", "new_orders": []})
+                context.state.log("Ticketsshop check complete. All pending LiveTicketGroup orders are listed.")
+                send_telegram("✅ Ticketsshop check complete. All pending LiveTicketGroup orders are listed.")
+                return jsonify({"ok": True, "checked": 0, "listed": [], "missing": []})
 
-            missing_orders = check_ticketsshop_bulk(to_check)
+            check_results = check_ticketsshop_bulk(to_check)
+            listed_orders = check_results.get("listed", [])
+            missing_orders = check_results.get("missing", [])
 
-            for r in to_check:
-                checked_ids.append(str(r.get("id")))
-            
-            save_json_file(SENT_TICKETSSHOP_FILE, list(set(checked_ids)))
+            for m_order in listed_orders:
+                order_id = str(m_order.get("id"))
+                if results_cache.get(order_id) != "listed":
+                    msg = (
+                        f"✅ LISTED IN TICKETSSHOP\n"
+                        f"Live Order: {order_id}\n"
+                        f"Event: {m_order.get('event')}"
+                    )
+                    send_telegram(msg)
+                results_cache[order_id] = "listed"
 
             for m_order in missing_orders:
-                msg = (
-                    f"**Missing Inventory Alert**\n\n"
-                    f"The order `{m_order.get('id')}` from LiveTicketGroup "
-                    f"({m_order.get('event')}) is NOT listed in the TicketsShop system. "
-                    f"Please add it."
-                )
-                send_telegram(msg)
-                
-            context.state.log(f"Ticketsshop check finished. Found {len(missing_orders)} missing order(s).")
+                order_id = str(m_order.get("id"))
+                # Only alert again if it wasn't already missing, or just alert every time?
+                # User said: "Do not send the same Ticketsshop check result repeatedly unless the result changed."
+                if results_cache.get(order_id) != "missing":
+                    msg = (
+                        f"⚠️ MISSING IN TICKETSSHOP\n"
+                        f"Live Order: {order_id}\n"
+                        f"Event: {m_order.get('event')}\n"
+                        f"Action: Please list/check this order."
+                    )
+                    send_telegram(msg)
+                results_cache[order_id] = "missing"
+            
+            save_json_file(TICKETSSHOP_RESULTS_FILE, results_cache)
+
+            context.state.log(f"Ticketsshop check finished. {len(listed_orders)} listed, {len(missing_orders)} missing.")
 
             return jsonify({
                 "ok": True, 
-                "message": "Ticketsshop checked", 
-                "new_orders": missing_orders
+                "checked": len(to_check),
+                "listed": [str(o.get("id")) for o in listed_orders],
+                "missing": [str(o.get("id")) for o in missing_orders]
             })
         except Exception as e:
             import traceback
