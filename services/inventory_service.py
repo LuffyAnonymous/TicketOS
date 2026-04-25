@@ -130,18 +130,30 @@ def check_ticketsshop_bulk(orders_to_check):
                 page.wait_for_selector('input[placeholder="Search matches..."]', timeout=15000)
                 
                 teams = event_name.split(' vs ')
-                search_query = event_name
-                if len(teams) == 2:
-                    search_query = f"{teams[0].strip()} vs {teams[1].strip()}"
-                    
-                page.fill('input[placeholder="Search matches..."]', search_query)
+                first_team = teams[0].strip() if len(teams) > 0 else event_name
+                second_team = teams[1].strip() if len(teams) > 1 else ""
+                
+                page.fill('input[placeholder="Search matches..."]', first_team)
                 time.sleep(2) 
                 
-                first_team = teams[0].strip() if len(teams) > 0 else event_name
-                match_row = page.locator(f"div:has-text('{first_team}')").first
+                match_cards = page.locator("div.cursor-pointer")
+                match_to_click = None
                 
-                if match_row.count() > 0:
-                    match_row.click()
+                for i in range(match_cards.count()):
+                    card = match_cards.nth(i)
+                    card_text = card.inner_text()
+                    if second_team and first_team in card_text and second_team in card_text:
+                        match_to_click = card
+                        break
+                    elif not second_team and first_team in card_text:
+                        match_to_click = card
+                        break
+                        
+                if match_to_click is None and match_cards.count() > 0:
+                    match_to_click = match_cards.first
+                
+                if match_to_click and match_to_click.count() > 0:
+                    match_to_click.click()
                     page.wait_for_selector('input[placeholder*="Search by account"]', timeout=15000)
                     
                     page.fill('input[placeholder*="Search by account"]', order_id)

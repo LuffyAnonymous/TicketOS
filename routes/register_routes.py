@@ -257,8 +257,15 @@ def register_routes(app):
             if not isinstance(results_cache, dict):
                 results_cache = {}
 
+            from core.helpers import is_event_expired
+
             all_rows = context.state.sent_order_rows
-            ltg_rows = [r for r in all_rows if r.get("source") == "LiveTicketGroup"]
+            
+            # Filter LTG orders and ignore those whose event_date is in the past
+            ltg_rows = [
+                r for r in all_rows 
+                if r.get("source") == "LiveTicketGroup" and not is_event_expired(r.get("event_date", ""))
+            ]
             
             # We want to check LTG orders that are either unchecked or previously marked as missing.
             to_check = []
