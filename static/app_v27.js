@@ -37,6 +37,45 @@ async function api(path, options = {}) {
   return data;
 }
 
+function showToast(message) {
+  const container = document.getElementById('toastContainer');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = message;
+  container.appendChild(toast);
+  
+  // Trigger animation
+  setTimeout(() => toast.classList.add('show'), 10);
+  
+  // Remove after 3 seconds
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => { showToast('ID copied: ' + text); }).catch(err => console.error('Copy failed', err));
+  } else {
+    let textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-999999px";
+    textArea.style.top = "-999999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      showToast('ID copied: ' + text);
+    } catch (err) {
+      console.error('Fallback copy failed', err);
+    }
+    textArea.remove();
+  }
+}
 function esc(v) { return String(v ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
 function parseDate(dateText) {
   if (!dateText) return null;
@@ -104,16 +143,32 @@ function renderRecentSent(rows){
     return; 
   } 
   body.innerHTML = rows.map(r => `<tr>
-    <td><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button></td>
+    <td><div style="display:flex; align-items:center; gap:6px;"><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button><span style="cursor:pointer; font-size:14px;" onclick="copyToClipboard('${esc(r.id||'-')}')" title="Copy ID">📋</span></div></td>
     <td>${esc(r.event||'-')}</td>
     <td>${esc(r.source||'-')}</td>
   </tr>`).join(''); 
 }
 
-function toggleAccordion(id) {
+function toggleAccordion(id, evEnc, srcEnc) {
+  const eventName = evEnc ? decodeURIComponent(evEnc) : null;
+  const sourceName = srcEnc ? decodeURIComponent(srcEnc) : null;
   const body = document.getElementById(id);
   if(body) {
-    body.classList.toggle('hidden');
+    const isHidden = body.classList.contains('hidden');
+    if (isHidden) {
+      body.classList.remove('hidden');
+      selectedEvent = eventName;
+      selectedSource = sourceName;
+      document.querySelectorAll('[id^="accordion-body-"]').forEach(el => {
+        if (el.id !== id) el.classList.add('hidden');
+      });
+    } else {
+      body.classList.add('hidden');
+      if (selectedEvent === eventName && selectedSource === sourceName) {
+        selectedEvent = null;
+        selectedSource = null;
+      }
+    }
   }
 }
 
@@ -137,7 +192,7 @@ function renderEventAccordion(groups) {
           <tbody>
             ${g.orders.slice().sort((a,b)=>(parseDate(b.sale_date)||0)-(parseDate(a.sale_date)||0)).map(r => `
               <tr>
-                <td><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id)}</button></td>
+                <td><div style="display:flex; align-items:center; gap:6px;"><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id)}</button><span style="cursor:pointer; font-size:14px;" onclick="copyToClipboard('${esc(r.id)}')" title="Copy ID">📋</span></div></td>
                 <td>${esc(r.customer||'-')}</td>
                 <td>${esc(qtyFor(r))}</td>
                 <td>£${Number(totalFor(r)).toFixed(2)}</td>
@@ -155,7 +210,7 @@ function renderEventAccordion(groups) {
     
     return `
       <div class="accordion-item" style="border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; background: var(--card); overflow: hidden;">
-        <div class="accordion-header" style="padding: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: var(--table-head);" onclick="toggleAccordion('${bodyId}')">
+        <div class="accordion-header" style="padding: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: var(--table-head);" onclick="toggleAccordion('${bodyId}', '${encodeURIComponent(g.event)}', '${encodeURIComponent(g.source)}')">
           <div style="font-weight: 700; font-size: 16px;">${esc(g.event)} <span style="font-size: 13px; font-weight: normal; color: var(--muted);">→ ${esc(g.source)} (${g.orders_count} orders)</span></div>
           <div style="color: var(--muted);">▼</div>
         </div>
@@ -292,10 +347,10 @@ async function checkTicketsshopOrders() {
   try {
     const res = await api('/api/check-ticketsshop-listings', {method:'POST'});
     if(res.ok) {
-      alert(`Ticketsshop check complete.\nChecked: ${res.checked}\nListed: ${res.listed ? res.listed.length : 0}\nMissing: ${res.missing ? res.missing.length : 0}`);
+      showToast(`Ticketsshop check complete.\nChecked: ${res.checked}\nListed: ${res.listed ? res.listed.length : 0}\nMissing: ${res.missing ? res.missing.length : 0}`);
     }
   } catch(e) {
-    alert(`Error checking Ticketsshop: ${e.message}`);
+    showToast(`Error checking Ticketsshop: ${e.message}`);
   }
   btn.innerHTML = originalText;
   btn.disabled = false;

@@ -309,7 +309,11 @@ def register_routes(app):
 
             if not to_check:
                 context.state.log("Ticketsshop check complete. All pending LiveTicketGroup orders are listed.")
-                send_telegram("✅ Ticketsshop check complete. All pending LiveTicketGroup orders are listed.")
+                send_telegram(
+                    "✅ TICKETSSHOP CHECK COMPLETE\n"
+                    "All pending orders are listed.\n"
+                    "No missing listings found."
+                )
                 return jsonify({"ok": True, "checked": 0, "listed": [], "missing": []})
 
             check_results = check_ticketsshop_bulk(to_check)

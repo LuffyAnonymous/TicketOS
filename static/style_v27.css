@@ -1226,3 +1226,34 @@ body.dark .order-link-btn {
   border-color: #6366f1;
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }
+
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--card);
+  color: var(--text);
+  padding: 14px 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  font-weight: 600;
+  font-size: 14px;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  white-space: pre-line;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
