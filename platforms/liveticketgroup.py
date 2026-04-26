@@ -355,7 +355,127 @@ def get_ltg_adapter():
     return None
 
 
-def parse_ltg_order_details_html(html):
+def parse_ltg_order_details_html(html, order_id=None):
+    import json
+    import re
+    
+    text = html.replace("\\\"", "\"").replace("\\\\", "\\")
+    start = -1
+    
+    if order_id:
+        start = text.find(f'{{"id":{order_id},')
+        if start == -1:
+            start = text.find(f'{{"id":"{order_id}",')
+    
+    if start == -1:
+        m = re.search(r'(\{"id":\d+,"ticketHistoryId":)', text)
+        if m:
+            start = m.start(1)
+            
+    if start != -1:
+        count = 0
+        end = -1
+        for i in range(start, len(text)):
+            if text[i] == "{": count += 1
+            elif text[i] == "}":
+                count -= 1
+                if count == 0:
+                    end = i + 1
+                    break
+        if end != -1:
+            try:
+                data = json.loads(text[start:end])
+                
+                event_name = "-"
+                league = "-"
+                venue = "-"
+                event_date = "-"
+                if "show" in data:
+                    event_name = data["show"].get("name", "-")
+                    league = data["show"].get("typeName", "-")
+                    venue = data["show"].get("venueName", "-")
+                    event_date = data["show"].get("showDate", "-")
+                
+                customer_name = "-"
+                customer_phone = "-"
+                if "buyer" in data:
+                    buyer = data["buyer"]
+                    customer_name = buyer.get("fullName", "-")
+                    if "billing" in buyer and buyer["billing"].get("mobile"):
+                        customer_phone = buyer["billing"]["mobile"]
+                    elif "shipping" in buyer and buyer["shipping"].get("mobile"):
+                        customer_phone = buyer["shipping"]["mobile"]
+                
+                category = "-"
+                row_value = "-"
+                seating = "-"
+                quantity = "-"
+                price_per_ticket = "-"
+                total_amount = "-"
+                shipping = "-"
+                
+                if "ticketInfo" in data:
+                    tinfo = data["ticketInfo"]
+                    category = tinfo.get("category", "-")
+                    row_value = tinfo.get("row", "-")
+                    quantity = str(tinfo.get("quantity", "-"))
+                    if "seating" in tinfo and isinstance(tinfo["seating"], list):
+                        seating = ", ".join([s.get("name", "") for s in tinfo["seating"] if "name" in s])
+                    if "pricingDetails" in tinfo:
+                        pdet = tinfo["pricingDetails"]
+                        price_per_ticket = str(pdet.get("pricePaidPerTicket", "-"))
+                        total_amount = str(pdet.get("total", "-"))
+                        shipping = str(pdet.get("shipping", "-"))
+                        
+                currency = data.get("currency", "£")
+                if currency == "GBP": currency = "£"
+                elif currency == "EUR": currency = "€"
+                elif currency == "USD": currency = "$"
+                
+                if price_per_ticket != "-":
+                    price_per_ticket = f"{currency}{price_per_ticket}"
+                if total_amount != "-":
+                    total_amount = f"{currency}{total_amount}"
+                
+                attendees = []
+                if "attendees" in data and "attendeeDetails" in data["attendees"]:
+                    for att in data["attendees"]["attendeeDetails"]:
+                        name = f"{att.get('firstName', '')} {att.get('lastName', '')}".strip()
+                        if name:
+                            attendees.append(name)
+                
+                return {
+                    "event": event_name,
+                    "league": league,
+                    "venue": venue,
+                    "event_date": event_date,
+                    "status": data.get("status", "-"),
+                    "customer_name": customer_name,
+                    "customer_phone": customer_phone,
+                    "area": category,
+                    "category": category,
+                    "section": "-",
+                    "row": row_value,
+                    "seating": seating,
+                    "allocation": "-",
+                    "delivery": shipping,
+                    "shipping": shipping,
+                    "quantity": quantity,
+                    "ticket_type": category,
+                    "price": price_per_ticket.replace("£", "").replace("€", "").replace("$", "").strip() if price_per_ticket != "-" else "-",
+                    "price_per_ticket": price_per_ticket,
+                    "total_price": total_amount,
+                    "restrictions": "-",
+                    "notes": "-",
+                    "sale_date": data.get("createdOn", "-"),
+                    "processed_on": data.get("processedOn", "-"),
+                    "attendees": attendees,
+                    "line_items": [[category, "-", row_value, seating, "-", shipping, quantity]] if category != "-" else [],
+                }
+            except Exception:
+                pass
+
+    # Fallback to BeautifulSoup parsing
     soup = BeautifulSoup(html, "html.parser")
     page_text = soup.get_text("\n", strip=True)
 
@@ -566,7 +686,7 @@ def get_ltg_order_details(order_id):
     if not html or len(html.strip()) < 100:
         raise RuntimeError("Order details page returned empty or too short HTML")
 
-    parsed = parse_ltg_order_details_html(html)
+    parsed = parse_ltg_order_details_html(html, order_id=order_id)
     parsed["detail_url"] = detail_url
 
     if not isinstance(parsed, dict):

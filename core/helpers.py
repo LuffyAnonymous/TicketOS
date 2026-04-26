@@ -8,6 +8,17 @@ def clean_text(text):
     text = re.sub(r"\n\s*\n+", "\n", text)
     return text.strip()
 
+def standardize_status(raw_status):
+    if not raw_status:
+        return "new"
+    low = clean_text(raw_status).lower()
+    if "cancel" in low:
+        return "cancelled"
+    if "resol" in low or "resold" in low:
+        return "resold"
+    if "process" in low or "complet" in low:
+        return "completed"
+    return "new"
 
 def parse_event_datetime(value):
     if not value:

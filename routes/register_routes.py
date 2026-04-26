@@ -86,22 +86,38 @@ def register_routes(app):
             ts_cache = load_json_file(TICKETSSHOP_RESULTS_FILE, {})
         except:
             ts_cache = {}
+        try:
+            from config import ORDER_STATUS_STATE_FILE
+            from core.storage import load_json_file
+            order_states = load_json_file(ORDER_STATUS_STATE_FILE, {})
+        except:
+            order_states = {}
 
         orders = []
         for r in context.state.current_order_rows:
             order_copy = dict(r)
-            if "liveticketgroup" in clean_text(order_copy.get("source", "Unknown")).lower():
-                order_id = str(order_copy.get("id"))
+            source = clean_text(order_copy.get("source", "Unknown"))
+            order_id = str(order_copy.get("id"))
+            key = f"{source}::{order_id}"
+            
+            if "liveticketgroup" in source.lower():
                 ts_info = ts_cache.get(order_id)
                 if isinstance(ts_info, dict):
                     order_copy["ticketsshop_status"] = ts_info.get("status", "unchecked")
                 else:
                     order_copy["ticketsshop_status"] = ts_info if ts_info else "unchecked"
                     
-                if order_copy["ticketsshop_status"] == "listed":
-                    order_copy["dashboard_status"] = "processed"
-                else:
-                    order_copy["dashboard_status"] = "pending"
+            std_status = "new"
+            if key in order_states:
+                std_status = order_states[key].get("order_status", "new")
+            else:
+                from core.helpers import standardize_status
+                std_status = standardize_status(order_copy.get("status", ""))
+                
+            if std_status == "new":
+                std_status = "pending"
+                
+            order_copy["dashboard_status"] = std_status
             orders.append(order_copy)
 
         return jsonify({

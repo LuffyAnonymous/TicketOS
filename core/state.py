@@ -166,46 +166,35 @@ class AppState:
 
     def summary(self):
         source_counts = {}
-        status_counts = {"processed": 0, "cancelled": 0, "pending": 0}
+        status_counts = {"completed": 0, "cancelled": 0, "resold": 0, "pending": 0}
 
-        import datetime
-        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-        
         try:
-            from config import TICKETSSHOP_RESULTS_FILE
+            from config import ORDER_STATUS_STATE_FILE
             from core.storage import load_json_file
-            ts_cache = load_json_file(TICKETSSHOP_RESULTS_FILE, {})
+            order_states = load_json_file(ORDER_STATUS_STATE_FILE, {})
         except:
-            ts_cache = {}
+            order_states = {}
 
         for row in self.current_order_rows:
             source = clean_text(row.get("source", "Unknown")) or "Unknown"
             source_counts[source] = source_counts.get(source, 0) + 1
 
-        cache = load_order_details_cache()
-        for row in self.current_order_rows:
-            source = clean_text(row.get("source", "Unknown")) or "Unknown"
-            order_id = clean_text(row.get("id", ""))
-            details = cache.get(f"{source}::{order_id}", {})
-            status_text = clean_text(details.get("status", row.get("status", ""))).lower()
-            
-            is_cancelled = "cancel" in status_text
-
-            if is_cancelled:
-                status_counts["cancelled"] += 1
+            key = f"{source}::{clean_text(row.get('id', ''))}"
+            std_status = "new"
+            if key in order_states:
+                std_status = order_states[key].get("order_status", "new")
+            else:
+                from core.helpers import standardize_status
+                std_status = standardize_status(row.get("status", ""))
                 
-            if "liveticketgroup" in source.lower():
-                ts_info = ts_cache.get(order_id)
-                if isinstance(ts_info, dict):
-                    ts_status = ts_info.get("status", "unchecked")
-                else:
-                    ts_status = ts_info if ts_info else "unchecked"
-
-                if ts_status == "listed":
-                    status_counts["processed"] += 1
-                else:
-                    if not is_cancelled:
-                        status_counts["pending"] += 1
+            if std_status == "completed":
+                status_counts["completed"] += 1
+            elif std_status == "cancelled":
+                status_counts["cancelled"] += 1
+            elif std_status == "resold":
+                status_counts["resold"] += 1
+            else:
+                status_counts["pending"] += 1
 
         return {
             "running": self.running,
@@ -220,8 +209,9 @@ class AppState:
                 for r in self.sent_order_rows
                 if clean_text(r.get("id", ""))
             }),
-            "processed_count": status_counts["processed"],
+            "processed_count": status_counts["completed"],
             "cancelled_count": status_counts["cancelled"],
+            "resold_count": status_counts["resold"],
             "pending_count": status_counts["pending"],
             "source_counts": source_counts,
             "settings": self.settings,

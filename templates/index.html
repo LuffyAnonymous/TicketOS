@@ -65,16 +65,20 @@
         </div>
       </header>
 
-      <section class="stats-grid">
+      <section class="stats-grid" style="grid-template-columns: repeat(5, 1fr);">
         <div class="stat-card blue clickable" id="cardTotal" onclick="filterDashboardTable('all')" title="Click to show all orders">
           <div class="stat-label">Total Orders</div>
           <div class="stat-value" id="totalOrdersCount">0</div>
         </div>
         <div class="stat-card green clickable" id="cardProcessed" onclick="filterDashboardTable('processed')">
-          <div class="stat-label">Processed Orders</div>
+          <div class="stat-label">Completed Orders</div>
           <div class="stat-value" id="processedOrdersCount">0</div>
         </div>
-        <div class="stat-card orange">
+        <div class="stat-card orange clickable" id="cardResold" onclick="filterDashboardTable('resold')">
+          <div class="stat-label">Resold Orders</div>
+          <div class="stat-value" id="resoldOrdersCount">0</div>
+        </div>
+        <div class="stat-card red clickable" id="cardCancelled" onclick="filterDashboardTable('cancelled')">
           <div class="stat-label">Cancelled Orders</div>
           <div class="stat-value" id="cancelledOrdersCount">0</div>
         </div>
@@ -110,7 +114,7 @@
             <div class="panel-head"><div><h3>Order Details</h3><p id="orderDetailsSubtitle">Pending Orders</p></div></div>
             <div class="table-wrap short-table compact-table-wrap">
               <table>
-                <thead><tr><th>ID</th><th>Event</th><th>Source</th></tr></thead>
+                <thead><tr><th style="padding-left:16px;">ID</th><th>Status</th><th>Customer</th></tr></thead>
                 <tbody id="recentSentBody"></tbody>
               </table>
             </div>

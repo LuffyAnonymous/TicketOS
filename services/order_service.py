@@ -35,6 +35,27 @@ def build_order_message(order):
     )
 
 
+def build_status_message(order, status):
+    order_id = clean_text(order.get('id', '-'))
+    event_name = clean_text(order.get('event', '-'))
+    customer = clean_text(order.get('customer', '-'))
+    
+    if status == "cancelled":
+        title = "❌ ORDER CANCELLED"
+    elif status == "resold":
+        title = "🔁 ORDER RESOLD"
+    elif status == "completed":
+        title = "✅ ORDER COMPLETED"
+    else:
+        title = "ℹ️ ORDER STATUS CHANGED"
+        
+    return (
+        f"{title}\n\n"
+        f"Order: {order_id}\n"
+        f"Event: {event_name}\n"
+        f"Customer: {customer}"
+    )
+
 def unique_order_key(order):
     return f"{clean_text(order.get('source','Unknown'))}::{clean_text(order.get('id',''))}"
 
@@ -58,6 +79,54 @@ def check_all_platforms_once(seen_orders):
         reverse=True
     )
     context.state.current_order_rows = all_rows
+
+    from config import ORDER_STATUS_STATE_FILE
+    from core.storage import load_json_file, save_json_file
+    from core.helpers import standardize_status
+    
+    status_state = load_json_file(ORDER_STATUS_STATE_FILE, {})
+    status_state_changed = False
+    
+    for row in all_rows:
+        source = clean_text(row.get("source", ""))
+        order_id = clean_text(row.get("id", ""))
+        if not source or not order_id:
+            continue
+            
+        if source.lower() != "liveticketgroup":
+            continue
+            
+        key = f"{source}::{order_id}"
+        raw_status = row.get("status", "")
+        std_status = standardize_status(raw_status)
+        
+        old_data = status_state.get(key, {})
+        old_status = old_data.get("order_status", "new")
+        
+        if not old_data:
+            status_state[key] = {
+                "order_number": order_id,
+                "event_name": row.get("event", "-"),
+                "customer": row.get("customer", "-"),
+                "sale_date": row.get("sale_date", "-"),
+                "order_status": std_status,
+                "last_status_sent": std_status if std_status != "new" else "none" 
+            }
+            status_state_changed = True
+        else:
+            if std_status != old_status:
+                status_state[key]["order_status"] = std_status
+                
+                if std_status in ["cancelled", "resold", "completed"]:
+                    if status_state[key].get("last_status_sent") != std_status:
+                        msg = build_status_message(row, std_status)
+                        send_telegram(msg)
+                        status_state[key]["last_status_sent"] = std_status
+                        
+                status_state_changed = True
+
+    if status_state_changed:
+        save_json_file(ORDER_STATUS_STATE_FILE, status_state)
 
     latest_order = None
     latest_dt = None

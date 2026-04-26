@@ -1080,8 +1080,14 @@ body.dark .order-link-btn {
 
 .status-pill.pending,
 .tiny.pending {
-  background: #fef3c7;
-  color: #92400e;
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.status-pill.resold,
+.tiny.resold {
+  background: #ffedd5;
+  color: #9a3412;
 }
 
 .status-pill.cancelled,

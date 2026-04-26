@@ -17,12 +17,16 @@ function filterDashboardTable(type) {
     cards.forEach(c => c.classList.remove('active-filter'));
     if(type === 'all') document.getElementById('cardTotal')?.classList.add('active-filter');
     if(type === 'processed') document.getElementById('cardProcessed')?.classList.add('active-filter');
+    if(type === 'resold') document.getElementById('cardResold')?.classList.add('active-filter');
+    if(type === 'cancelled') document.getElementById('cardCancelled')?.classList.add('active-filter');
     if(type === 'pending') document.getElementById('cardPending')?.classList.add('active-filter');
 
     const subtitle = document.getElementById('orderDetailsSubtitle');
     if(subtitle) {
         if(type === 'all') subtitle.textContent = 'All Orders';
-        if(type === 'processed') subtitle.textContent = 'Processed Orders';
+        if(type === 'processed') subtitle.textContent = 'Completed Orders';
+        if(type === 'resold') subtitle.textContent = 'Resold Orders';
+        if(type === 'cancelled') subtitle.textContent = 'Cancelled Orders';
         if(type === 'pending') subtitle.textContent = 'Pending Orders';
     }
 
@@ -88,7 +92,7 @@ function updateGreeting(){ const el=document.getElementById('greetingText'); if(
 function setStatusText(status){ const hero=document.getElementById('heroStatus'); if(hero) hero.textContent=status||'Stopped'; }
 function setSleepButtons(on){ ['sleepToggleSettings'].forEach(id=>{ const el=document.getElementById(id); if(!el) return; el.textContent=on?'Sleep 12AM: ON':'Sleep 12AM: OFF'; el.classList.toggle('active',!!on); }); }
 
-function statusBadge(status){ const s=String(status||'Pending').toLowerCase(); let cls='status-pill pending'; let label=status||'Pending'; if(s.includes('cancel')) cls='status-pill cancelled'; else if(s.includes('process')||s.includes('complete')) cls='status-pill processed'; return `<span class="${cls}">${esc(label)}</span>`; }
+function statusBadge(status){ const s=String(status||'Pending').toLowerCase(); let cls='status-pill pending'; let label=status||'Pending'; if(s.includes('cancel')) cls='status-pill cancelled'; else if(s.includes('resol')) cls='status-pill resold'; else if(s.includes('process')||s.includes('complete')) cls='status-pill processed'; return `<span class="${cls}">${esc(label)}</span>`; }
 function getDetail(source,id){ return orderDetailsCache[`${source}::${id}`]||{}; }
 function qtyFor(row){ const d=getDetail(row.source,row.id); return Number(d.quantity||0)||0; }
 function totalFor(row){ const d=getDetail(row.source,row.id); const total=Number(String(d.total_price||0).replace(/[^0-9.]/g,'')); if(total>0) return total; const ppt=Number(String(d.price_per_ticket||0).replace(/[^0-9.]/g,'')); const q=qtyFor(row); return ppt>0&&q>0? ppt*q : 0; }
@@ -142,11 +146,37 @@ function renderRecentSent(rows){
     body.innerHTML='<tr><td colspan="3" class="muted">No orders found for this filter</td></tr>'; 
     return; 
   } 
-  body.innerHTML = rows.map(r => `<tr>
-    <td><div style="display:flex; align-items:center; gap:6px;"><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button><span style="cursor:pointer; font-size:14px;" onclick="copyToClipboard('${esc(r.id||'-')}')" title="Copy ID">📋</span></div></td>
-    <td>${esc(r.event||'-')}</td>
-    <td>${esc(r.source||'-')}</td>
-  </tr>`).join(''); 
+  
+  const grouped = {};
+  rows.forEach(r => {
+    const ev = r.event || 'Unknown Event';
+    if (!grouped[ev]) grouped[ev] = { completed: [], cancelled: [], resold: [], pending: [] };
+    const st = r.dashboard_status || 'pending';
+    if (st === 'completed' || st === 'processed') grouped[ev].completed.push(r);
+    else if (st === 'cancelled') grouped[ev].cancelled.push(r);
+    else if (st === 'resold') grouped[ev].resold.push(r);
+    else grouped[ev].pending.push(r);
+  });
+  
+  let html = '';
+  for (const ev in grouped) {
+    html += `<tr><td colspan="3" style="background:#f3f4f6;font-weight:bold;font-size:13px;padding:8px;text-align:center;border-bottom:1px solid #e5e7eb;">${esc(ev)}</td></tr>`;
+    
+    for (const st of ['completed', 'cancelled', 'resold', 'pending']) {
+       if (grouped[ev][st].length > 0) {
+          html += `<tr><td colspan="3" style="background:#f9fafb;font-weight:600;font-size:11px;padding:4px 8px;color:#6b7280;text-transform:uppercase;">${st} Orders</td></tr>`;
+          grouped[ev][st].forEach(r => {
+              const displayStatus = r.dashboard_status === 'processed' ? 'completed' : r.dashboard_status;
+              html += `<tr style="border-bottom:1px solid #f3f4f6;">
+                <td style="padding-left:16px;"><div style="display:flex; align-items:center; gap:6px;"><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button><span style="cursor:pointer; font-size:14px;" onclick="copyToClipboard('${esc(r.id||'-')}')" title="Copy ID">📋</span></div></td>
+                <td>${statusBadge(displayStatus)}</td>
+                <td>${esc(r.customer||'-')}</td>
+              </tr>`;
+          });
+       }
+    }
+  }
+  body.innerHTML = html;
 }
 
 function toggleAccordion(id, evEnc, srcEnc) {
@@ -256,16 +286,13 @@ function refreshDerivedViews() {
   let filteredData = latestOrdersData;
 
   if (currentDashboardFilter === 'processed') {
-      filteredData = latestOrdersData.filter(o => 
-          (o.source || '').toLowerCase().includes('liveticketgroup') && 
-          o.dashboard_status === 'processed'
-      );
+      filteredData = latestOrdersData.filter(o => o.dashboard_status === 'completed' || o.dashboard_status === 'processed');
+  } else if (currentDashboardFilter === 'resold') {
+      filteredData = latestOrdersData.filter(o => o.dashboard_status === 'resold');
+  } else if (currentDashboardFilter === 'cancelled') {
+      filteredData = latestOrdersData.filter(o => o.dashboard_status === 'cancelled');
   } else if (currentDashboardFilter === 'pending') {
-      filteredData = latestOrdersData.filter(o => {
-          const s = (o.source || '').toLowerCase();
-          const st = (o.status || '').toLowerCase();
-          return s.includes('liveticketgroup') && o.dashboard_status === 'pending' && !st.includes('cancel');
-      });
+      filteredData = latestOrdersData.filter(o => o.dashboard_status === 'pending');
   }
 
   const groups = groupOrdersByEventSource(filteredData);
@@ -288,6 +315,7 @@ async function refresh(){
   });
   document.getElementById('totalOrdersCount').textContent=data.summary.order_count??0;
   document.getElementById('processedOrdersCount').textContent=data.summary.processed_count??0;
+  if(document.getElementById('resoldOrdersCount')) document.getElementById('resoldOrdersCount').textContent=data.summary.resold_count??0;
   document.getElementById('cancelledOrdersCount').textContent=data.summary.cancelled_count??0;
   document.getElementById('pendingOrdersCount').textContent=data.summary.pending_count??0;
   document.getElementById('sessionStatus').textContent=data.summary.session_status||'-';
