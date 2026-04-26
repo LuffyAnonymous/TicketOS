@@ -299,6 +299,8 @@ class LiveTicketGroupAdapter(OrderPlatformAdapter):
                 column_map["event"] = i
             elif "customer" in h or "name" in h or "client" in h or "buyer" in h:
                 column_map["customer"] = i
+            elif "resale" in h:
+                column_map["resale_status"] = i
 
         required = ["id", "status", "sale_date", "event_date", "event", "customer"]
         missing = [x for x in required if x not in column_map]
@@ -319,6 +321,7 @@ class LiveTicketGroupAdapter(OrderPlatformAdapter):
                     "id": clean_text(tds[column_map["id"]].get_text(" ", strip=True)),
                     "customer": clean_text(tds[column_map["customer"]].get_text(" ", strip=True)),
                     "status": clean_text(tds[column_map["status"]].get_text(" ", strip=True)),
+                    "resale_status": clean_text(tds[column_map["resale_status"]].get_text(" ", strip=True)) if "resale_status" in column_map else "",
                     "sale_date": clean_text(tds[column_map["sale_date"]].get_text(" ", strip=True)),
                     "event_date": clean_text(tds[column_map["event_date"]].get_text(" ", strip=True)),
                     "event": clean_text(tds[column_map["event"]].get_text(" ", strip=True)),
@@ -346,6 +349,62 @@ class LiveTicketGroupAdapter(OrderPlatformAdapter):
     def fetch_orders(self):
         html = self.ensure_logged_in()
         return self.parse_orders_from_html(html)
+
+    def fetch_orders_by_event(self, event_name):
+        self.ensure_logged_in()
+        
+        headers = {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "accept-language": "en-GB,en;q=0.9",
+            "priority": "u=0, i",
+            "referer": "https://my.liveticketgroup.com/pages/content/index.aspx?TopNav=1&SubNav=4",
+            "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest": "document",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-user": "?1",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        }
+
+        search_url = "https://my.liveticketgroup.com/pages/content/orders.aspx?topnav=1&subnav=26"
+        
+        try:
+            # 1. GET the page to grab ASP.NET states
+            r_get = self.session.get(search_url, headers=headers, timeout=30)
+            r_get.raise_for_status()
+            soup = BeautifulSoup(r_get.text, "html.parser")
+            
+            viewstate = soup.find("input", id="__VIEWSTATE")
+            viewstategen = soup.find("input", id="__VIEWSTATEGENERATOR")
+            eventvalidation = soup.find("input", id="__EVENTVALIDATION")
+            
+            data = {
+                "__VIEWSTATE": viewstate["value"] if viewstate else "",
+                "__VIEWSTATEGENERATOR": viewstategen["value"] if viewstategen else "",
+                "__EVENTVALIDATION": eventvalidation["value"] if eventvalidation else "",
+                "ctl00$plcContent$urcSearch$txtEventName": event_name,
+                "ctl00$plcContent$urcSearch$btnSearch": "Search"
+            }
+            
+            # 2. POST the search
+            r_post = self.session.post(search_url, headers=headers, data=data, timeout=30)
+            r_post.raise_for_status()
+            
+            # 3. Parse the resulting table
+            rows, _ = self.parse_orders_from_html(r_post.text)
+            
+            # Double check filtering locally just in case
+            ev_lower = clean_text(event_name).lower()
+            matched = [r for r in rows if ev_lower in clean_text(r.get("event", "")).lower()]
+            
+            return matched
+            
+        except Exception as e:
+            context.state.log(f"{self.source_name}: error during POST search for {event_name} -> {repr(e)}")
+            return []
 
 
 def get_ltg_adapter():

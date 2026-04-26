@@ -27,6 +27,89 @@ def register_routes(app):
 
     app.after_request(maybe_refresh_token)
 
+    @app.route('/favicon.ico')
+    def favicon():
+        return "", 204
+
+    @app.route("/api/check-ltg-order-status", methods=["POST"])
+    @login_required
+    def check_ltg_status():
+        data = request.get_json(force=True, silent=True) or {}
+        event_name = data.get("event_name", "").strip()
+        if not event_name:
+            return jsonify({"error": "Event name is required."}), 400
+
+        from platforms.liveticketgroup import get_ltg_adapter
+        adapter = get_ltg_adapter()
+        if not adapter:
+            return jsonify({"error": "LiveTicketGroup not found or not enabled."}), 400
+
+        try:
+            rows = adapter.fetch_orders_by_event(event_name)
+        except Exception as e:
+            context.state.log(f"Manual LTG check failed: {e}")
+            return jsonify({"error": f"Failed to fetch orders: {str(e)}"}), 500
+
+        from config import LTG_STATUS_ALERTS_FILE
+        from core.storage import load_json_file, save_json_file
+        from services.telegram_service import send_telegram
+
+        history = load_json_file(LTG_STATUS_ALERTS_FILE, {})
+        changed = False
+
+        grouped = {
+            "processed": [],
+            "cancelled": [],
+            "submitted": [],
+            "resold": []
+        }
+
+        for row in rows:
+            status_raw = clean_text(row.get("status", "")).lower()
+            resale_raw = clean_text(row.get("resale_status", "")).lower()
+            order_id = row.get("id")
+            
+            cat = "submitted"
+            if "cancel" in status_raw:
+                cat = "cancelled"
+            elif "resol" in resale_raw or "resale" in resale_raw:
+                cat = "resold"
+            elif "process" in status_raw:
+                cat = "processed"
+            elif "complet" in status_raw:
+                cat = "submitted"
+                
+            row["dashboard_status"] = cat
+            grouped[cat].append(row)
+            
+            alert_type = None
+            if cat == "cancelled":
+                alert_type = "cancelled"
+            elif cat == "resold":
+                alert_type = "resold"
+
+            if alert_type:
+                hist_key = f"{order_id}_{alert_type}"
+                if not history.get(hist_key):
+                    title = "❌ ORDER CANCELLED" if alert_type == "cancelled" else "🔁 ORDER RESOLD"
+                    msg = (
+                        f"{title}\n\n"
+                        f"Order: {order_id}\n"
+                        f"Event: {row.get('event', '-')}\n"
+                        f"Customer: {row.get('customer', '-')}"
+                    )
+                    send_telegram(msg)
+                    history[hist_key] = True
+                    changed = True
+
+        if changed:
+            save_json_file(LTG_STATUS_ALERTS_FILE, history)
+
+        return jsonify({
+            "success": True,
+            "event": event_name,
+            "results": grouped
+        })
 
     @app.get("/login")
     def login_page():

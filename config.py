@@ -63,6 +63,7 @@ TICKETSSHOP_RESULTS_FILE = os.path.join(BASE_DIR, "ticketsshop_check_results.jso
 USERS_FILE = os.path.join(BASE_DIR, "users.json")
 ORDER_DETAILS_CACHE_FILE = os.path.join(BASE_DIR, "order_details_cache.json")
 ORDER_STATUS_STATE_FILE = os.path.join(BASE_DIR, "order_status_state.json")
+LTG_STATUS_ALERTS_FILE = os.path.join(BASE_DIR, "ltg_status_alerts.json")
 
 DEBUG_ORDERS_HTML = os.path.join(BASE_DIR, "debug_orders_page.html")
 DEBUG_LOGIN_HTML = os.path.join(BASE_DIR, "debug_login_response.html")

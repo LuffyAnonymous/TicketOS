@@ -147,36 +147,14 @@ function renderRecentSent(rows){
     return; 
   } 
   
-  const grouped = {};
-  rows.forEach(r => {
-    const ev = r.event || 'Unknown Event';
-    if (!grouped[ev]) grouped[ev] = { completed: [], cancelled: [], resold: [], pending: [] };
-    const st = r.dashboard_status || 'pending';
-    if (st === 'completed' || st === 'processed') grouped[ev].completed.push(r);
-    else if (st === 'cancelled') grouped[ev].cancelled.push(r);
-    else if (st === 'resold') grouped[ev].resold.push(r);
-    else grouped[ev].pending.push(r);
-  });
-  
-  let html = '';
-  for (const ev in grouped) {
-    html += `<tr><td colspan="3" style="background:#f3f4f6;font-weight:bold;font-size:13px;padding:8px;text-align:center;border-bottom:1px solid #e5e7eb;">${esc(ev)}</td></tr>`;
-    
-    for (const st of ['completed', 'cancelled', 'resold', 'pending']) {
-       if (grouped[ev][st].length > 0) {
-          html += `<tr><td colspan="3" style="background:#f9fafb;font-weight:600;font-size:11px;padding:4px 8px;color:#6b7280;text-transform:uppercase;">${st} Orders</td></tr>`;
-          grouped[ev][st].forEach(r => {
-              const displayStatus = r.dashboard_status === 'processed' ? 'completed' : r.dashboard_status;
-              html += `<tr style="border-bottom:1px solid #f3f4f6;">
-                <td style="padding-left:16px;"><div style="display:flex; align-items:center; gap:6px;"><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button><span style="cursor:pointer; font-size:14px;" onclick="copyToClipboard('${esc(r.id||'-')}')" title="Copy ID">📋</span></div></td>
-                <td>${statusBadge(displayStatus)}</td>
-                <td>${esc(r.customer||'-')}</td>
-              </tr>`;
-          });
-       }
-    }
-  }
-  body.innerHTML = html;
+  body.innerHTML = rows.map(r => {
+    const displayStatus = r.dashboard_status === 'processed' ? 'completed' : r.dashboard_status;
+    return `<tr style="border-bottom:1px solid #f3f4f6;">
+      <td style="padding-left:16px;"><div style="display:flex; align-items:center; gap:6px;"><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button><span style="cursor:pointer; font-size:14px;" onclick="copyToClipboard('${esc(r.id||'-')}')" title="Copy ID">📋</span></div></td>
+      <td>${statusBadge(displayStatus)}</td>
+      <td>${esc(r.customer||'-')}</td>
+    </tr>`;
+  }).join('');
 }
 
 function toggleAccordion(id, evEnc, srcEnc) {
@@ -313,11 +291,11 @@ async function refresh(){
     if (!d) return true;
     return (now - d) <= 24 * 60 * 60 * 1000;
   });
-  document.getElementById('totalOrdersCount').textContent=data.summary.order_count??0;
-  document.getElementById('processedOrdersCount').textContent=data.summary.processed_count??0;
-  if(document.getElementById('resoldOrdersCount')) document.getElementById('resoldOrdersCount').textContent=data.summary.resold_count??0;
-  document.getElementById('cancelledOrdersCount').textContent=data.summary.cancelled_count??0;
-  document.getElementById('pendingOrdersCount').textContent=data.summary.pending_count??0;
+  const elTotal = document.getElementById('totalOrdersCount'); if(elTotal) elTotal.textContent=data.summary.order_count??0;
+  const elProc = document.getElementById('processedOrdersCount'); if(elProc) elProc.textContent=data.summary.processed_count??0;
+  const elRes = document.getElementById('resoldOrdersCount'); if(elRes) elRes.textContent=data.summary.resold_count??0;
+  const elCanc = document.getElementById('cancelledOrdersCount'); if(elCanc) elCanc.textContent=data.summary.cancelled_count??0;
+  const elPend = document.getElementById('pendingOrdersCount'); if(elPend) elPend.textContent=data.summary.pending_count??0;
   document.getElementById('sessionStatus').textContent=data.summary.session_status||'-';
   
   const h=document.getElementById('liveSessionStatus'); if(h) h.textContent=data.summary.session_status||'-';
@@ -396,3 +374,97 @@ function loadTheme(){ setTheme(localStorage.getItem('orderticketmonitor-theme')|
 function setupTabs(){ const links=document.querySelectorAll('.nav-link'); const pages=document.querySelectorAll('.tab-page'); links.forEach(link=>link.addEventListener('click',e=>{ e.preventDefault(); links.forEach(l=>l.classList.remove('active')); pages.forEach(p=>p.classList.remove('active')); link.classList.add('active'); const page=document.getElementById(link.dataset.tab); if(page) page.classList.add('active'); })); }
 async function fullRefresh(){ await refresh(); await refreshCharts(); }
 loadTheme(); setupTabs(); updateGreeting(); fullRefresh(); setInterval(fullRefresh,4000); setInterval(updateGreeting,60000);
+
+async function checkLtgStatus() {
+    const input = document.getElementById('manualLtgEventInput');
+    if(!input) return;
+    const eventName = input.value.trim();
+    if (!eventName) {
+        showToast("Please enter an event name first.");
+        input.focus();
+        return;
+    }
+
+    const btn = document.getElementById('btnCheckLtgStatus');
+    const ogText = btn.textContent;
+    btn.textContent = "CHECKING...";
+    btn.disabled = true;
+
+    try {
+        const data = await api('/api/check-ltg-order-status', {
+            method: 'POST',
+            body: JSON.stringify({ event_name: eventName })
+        });
+        
+        document.getElementById('manualLtgResultSection').style.display = 'block';
+        document.getElementById('manualLtgResultEvent').textContent = `Showing matched orders for: ${data.event}`;
+
+        const g = data.results || { processed: [], cancelled: [], submitted: [], resold: [] };
+        
+        document.getElementById('manualLtgSmallStats').innerHTML = `
+            <button class="btn btn-secondary manual-filter-btn" style="font-size: 11px; padding: 4px 10px; height: auto; border-radius: 4px; width: 140px; display: flex; justify-content: space-between;" onclick="filterManualResults('All')"><span>All</span><span>${g.processed.length + g.submitted.length + g.cancelled.length + g.resold.length}</span></button>
+            <button class="btn btn-secondary manual-filter-btn" style="font-size: 11px; padding: 4px 10px; height: auto; border-radius: 4px; width: 140px; display: flex; justify-content: space-between;" onclick="filterManualResults('Processed')"><span>Processed</span><span>${g.processed.length}</span></button>
+            <button class="btn btn-secondary manual-filter-btn" style="font-size: 11px; padding: 4px 10px; height: auto; border-radius: 4px; width: 140px; display: flex; justify-content: space-between;" onclick="filterManualResults('Submitted / Complete')"><span>Completed</span><span>${g.submitted.length}</span></button>
+            <button class="btn btn-secondary manual-filter-btn" style="font-size: 11px; padding: 4px 10px; height: auto; border-radius: 4px; width: 140px; display: flex; justify-content: space-between;" onclick="filterManualResults('Cancelled')"><span>Cancelled</span><span>${g.cancelled.length}</span></button>
+        `;
+
+        const orderGroups = [
+            { label: 'Processed', items: g.processed, statusClass: 'processed' },
+            { label: 'Submitted / Complete', items: g.submitted, statusClass: 'pending' },
+            { label: 'Resold', items: g.resold, statusClass: 'resold' },
+            { label: 'Cancelled', items: g.cancelled, statusClass: 'cancelled' }
+        ];
+
+        window.currentManualLtgGroups = orderGroups;
+        filterManualResults('All');
+        showToast("LTG Status Check complete!");
+        
+    } catch (e) {
+        showToast("Error checking LTG status: " + e.message);
+    } finally {
+        btn.textContent = ogText;
+        btn.disabled = false;
+    }
+}
+
+window.currentManualLtgGroups = null;
+function filterManualResults(type) {
+    if (!window.currentManualLtgGroups) return;
+    
+    // Update button active state styling
+    const btns = document.querySelectorAll('.manual-filter-btn');
+    btns.forEach(b => {
+        if(b.textContent.startsWith(type === 'Submitted / Complete' ? 'Completed' : type)) {
+            b.style.backgroundColor = 'var(--primary)';
+            b.style.color = '#fff';
+            b.style.borderColor = 'var(--primary)';
+        } else {
+            b.style.backgroundColor = 'var(--bg-panel)';
+            b.style.color = 'var(--fg-muted)';
+            b.style.borderColor = 'var(--border)';
+        }
+    });
+
+    let html = '';
+    const groupsToRender = type === 'All' 
+        ? window.currentManualLtgGroups 
+        : window.currentManualLtgGroups.filter(g => g.label === type);
+
+    for (const group of groupsToRender) {
+        if (group.items.length > 0) {
+            group.items.forEach(r => {
+                html += `<tr>
+                    <td><div style="display:flex; align-items:center; gap:6px;"><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'LiveTicketGroup')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button><span style="cursor:pointer; font-size:14px;" onclick="copyToClipboard('${esc(r.id||'-')}')" title="Copy ID">📋</span></div></td>
+                    <td>${esc(r.customer||'-')}</td>
+                    <td>${esc(r.sale_date||'-')}</td>
+                    <td><span class="status-pill ${group.statusClass}">${esc(r.dashboard_status||'')}</span></td>
+                </tr>`;
+            });
+        }
+    }
+    
+    if (!html) {
+        html = `<tr><td colspan="4" class="muted">No ${type.toLowerCase()} orders found.</td></tr>`;
+    }
+    document.getElementById('manualLtgResultBody').innerHTML = html;
+}

@@ -117,11 +117,8 @@ def check_all_platforms_once(seen_orders):
             if std_status != old_status:
                 status_state[key]["order_status"] = std_status
                 
-                if std_status in ["cancelled", "resold", "completed"]:
-                    if status_state[key].get("last_status_sent") != std_status:
-                        msg = build_status_message(row, std_status)
-                        send_telegram(msg)
-                        status_state[key]["last_status_sent"] = std_status
+                # No automatic alerts for status changes anymore.
+                # Just update the state for the dashboard.
                         
                 status_state_changed = True
 

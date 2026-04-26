@@ -88,6 +88,14 @@
         </div>
       </section>
 
+      <section class="panel" style="margin-top: 20px;">
+        <div class="panel-head"><div><h3>LTG Order Status Search</h3><p>Search LiveTicketGroup historical orders by event</p></div></div>
+        <div style="padding: 16px; display: flex; flex-direction: row; align-items: center; gap: 16px;">
+          <input type="text" id="manualLtgEventInput" placeholder="Event Name (e.g. Manchester United vs Brentford)" class="interval-input" style="flex: 1; height: 40px; padding: 0 16px; font-size: 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-dark); color: #fff;">
+          <button class="btn btn-secondary" onclick="checkLtgStatus()" id="btnCheckLtgStatus" style="height: 40px; width: auto; flex: 0 0 auto; font-size: 13px; font-weight: bold; white-space: nowrap; padding: 0 24px;">CHECK LTG ORDER STATUS</button>
+        </div>
+      </section>
+
       <section class="dashboard-two-col">
         <div class="panel">
           <div class="panel-head"><div><h3>Active Events Overview</h3><p>Real-time event order breakdown</p></div></div>
@@ -119,6 +127,22 @@
               </table>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="panel" id="manualLtgResultSection" style="display: none; margin-top: 20px;">
+        <div class="panel-head" style="display: flex; flex-direction: column; gap: 12px; align-items: flex-start;">
+          <div>
+            <h3>Manual Status Check Results</h3>
+            <p id="manualLtgResultEvent">Event</p>
+          </div>
+          <div id="manualLtgSmallStats" style="display: flex; flex-direction: row; gap: 6px; align-items: center; flex-wrap: wrap;"></div>
+        </div>
+        <div class="table-wrap compact-table-wrap" style="border: none;">
+          <table>
+            <thead><tr><th>ID</th><th>Customer</th><th>Sale Date</th><th>Status</th></tr></thead>
+            <tbody id="manualLtgResultBody"></tbody>
+          </table>
         </div>
       </section>
     </section>
