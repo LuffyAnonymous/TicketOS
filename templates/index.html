@@ -66,23 +66,23 @@
       </header>
 
       <section class="stats-grid" style="grid-template-columns: repeat(5, 1fr);">
-        <div class="stat-card blue clickable" id="cardTotal" onclick="filterDashboardTable('all')" title="Click to show all orders">
+        <div class="stat-card blue" id="cardTotal" title="Total Orders">
           <div class="stat-label">Total Orders</div>
           <div class="stat-value" id="totalOrdersCount">0</div>
         </div>
-        <div class="stat-card green clickable" id="cardProcessed" onclick="filterDashboardTable('processed')">
+        <div class="stat-card green" id="cardProcessed">
           <div class="stat-label">Completed Orders</div>
           <div class="stat-value" id="processedOrdersCount">0</div>
         </div>
-        <div class="stat-card orange clickable" id="cardResold" onclick="filterDashboardTable('resold')">
+        <div class="stat-card orange" id="cardResold">
           <div class="stat-label">Resold Orders</div>
           <div class="stat-value" id="resoldOrdersCount">0</div>
         </div>
-        <div class="stat-card red clickable" id="cardCancelled" onclick="filterDashboardTable('cancelled')">
+        <div class="stat-card red" id="cardCancelled">
           <div class="stat-label">Cancelled Orders</div>
           <div class="stat-value" id="cancelledOrdersCount">0</div>
         </div>
-        <div class="stat-card purple clickable active-filter" id="cardPending" onclick="filterDashboardTable('pending')">
+        <div class="stat-card purple" id="cardPending">
           <div class="stat-label">Pending Orders</div>
           <div class="stat-value" id="pendingOrdersCount">0</div>
         </div>
@@ -96,7 +96,7 @@
         </div>
       </section>
 
-      <section class="dashboard-two-col">
+      <section class="dashboard-two-col" style="grid-template-columns: 1fr;">
         <div class="panel">
           <div class="panel-head"><div><h3>Active Events Overview</h3><p>Real-time event order breakdown</p></div></div>
           <div class="table-wrap compact-table-wrap" style="max-height: 400px; min-height: 400px;">
@@ -115,17 +115,6 @@
                 <tr><td colspan="6" class="muted">Loading...</td></tr>
               </tbody>
             </table>
-          </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-head"><div><h3>Order Details</h3><p id="orderDetailsSubtitle">Pending Orders</p></div></div>
-            <div class="table-wrap short-table compact-table-wrap">
-              <table>
-                <thead><tr><th style="padding-left:16px;">ID</th><th>Status</th><th>Customer</th></tr></thead>
-                <tbody id="recentSentBody"></tbody>
-              </table>
-            </div>
           </div>
         </div>
       </section>

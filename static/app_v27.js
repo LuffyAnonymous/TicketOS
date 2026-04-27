@@ -3,35 +3,11 @@ let dayChartInstance = null;
 let latestOrdersData = [];
 let latestSentData = [];
 let monitoringToggle = false;
-let currentDashboardFilter = 'pending';
 let currentRole = "member";
 let currentUser = "";
 let selectedEvent = null;
 let selectedSource = null;
 let orderDetailsCache = {};
-
-function filterDashboardTable(type) {
-    currentDashboardFilter = type;
-    
-    const cards = document.querySelectorAll('.stat-card.clickable');
-    cards.forEach(c => c.classList.remove('active-filter'));
-    if(type === 'all') document.getElementById('cardTotal')?.classList.add('active-filter');
-    if(type === 'processed') document.getElementById('cardProcessed')?.classList.add('active-filter');
-    if(type === 'resold') document.getElementById('cardResold')?.classList.add('active-filter');
-    if(type === 'cancelled') document.getElementById('cardCancelled')?.classList.add('active-filter');
-    if(type === 'pending') document.getElementById('cardPending')?.classList.add('active-filter');
-
-    const subtitle = document.getElementById('orderDetailsSubtitle');
-    if(subtitle) {
-        if(type === 'all') subtitle.textContent = 'All Orders';
-        if(type === 'processed') subtitle.textContent = 'Completed Orders';
-        if(type === 'resold') subtitle.textContent = 'Resold Orders';
-        if(type === 'cancelled') subtitle.textContent = 'Cancelled Orders';
-        if(type === 'pending') subtitle.textContent = 'Pending Orders';
-    }
-
-    refreshDerivedViews();
-}
 
 async function api(path, options = {}) {
   const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
@@ -139,23 +115,7 @@ function renderActiveEvents(totals) {
   }).join('');
 }
 
-function renderRecentSent(rows){ 
-  const body = document.getElementById('recentSentBody'); 
-  if(!body) return; 
-  if(!rows.length){ 
-    body.innerHTML='<tr><td colspan="3" class="muted">No orders found for this filter</td></tr>'; 
-    return; 
-  } 
-  
-  body.innerHTML = rows.map(r => {
-    const displayStatus = r.dashboard_status === 'processed' ? 'completed' : r.dashboard_status;
-    return `<tr style="border-bottom:1px solid #f3f4f6;">
-      <td style="padding-left:16px;"><div style="display:flex; align-items:center; gap:6px;"><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button><span style="cursor:pointer; font-size:14px;" onclick="copyToClipboard('${esc(r.id||'-')}')" title="Copy ID">📋</span></div></td>
-      <td>${statusBadge(displayStatus)}</td>
-      <td>${esc(r.customer||'-')}</td>
-    </tr>`;
-  }).join('');
-}
+
 
 function toggleAccordion(id, evEnc, srcEnc) {
   const eventName = evEnc ? decodeURIComponent(evEnc) : null;
@@ -261,23 +221,10 @@ function openOrdersTab(eventName = null, sourceName = null) {
 
 async function refreshCharts(){ try{ const data=await api('/api/chart-data'); renderHourChart(data.hourly.labels, data.hourly.values); renderDayChart(data.daily.labels, data.daily.values);}catch(e){console.error(e);} }
 function refreshDerivedViews() {
-  let filteredData = latestOrdersData;
-
-  if (currentDashboardFilter === 'processed') {
-      filteredData = latestOrdersData.filter(o => o.dashboard_status === 'completed' || o.dashboard_status === 'processed');
-  } else if (currentDashboardFilter === 'resold') {
-      filteredData = latestOrdersData.filter(o => o.dashboard_status === 'resold');
-  } else if (currentDashboardFilter === 'cancelled') {
-      filteredData = latestOrdersData.filter(o => o.dashboard_status === 'cancelled');
-  } else if (currentDashboardFilter === 'pending') {
-      filteredData = latestOrdersData.filter(o => o.dashboard_status === 'pending');
-  }
-
-  const groups = groupOrdersByEventSource(filteredData);
+  const groups = groupOrdersByEventSource(latestOrdersData);
   renderEventAccordion(groups);
-  renderCustomerAnalytics(filteredData);
-  renderActivity(filteredData);
-  renderRecentSent(filteredData);
+  renderCustomerAnalytics(latestOrdersData);
+  renderActivity(latestOrdersData);
 }
 
 async function refresh(){
