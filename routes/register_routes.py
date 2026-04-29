@@ -394,7 +394,9 @@ def register_routes(app):
             to_check = []
             for r in ltg_rows:
                 order_id = str(r.get("id"))
-                status_val = results_cache.get(order_id)
+                event_name = str(r.get("event"))
+                cache_key = f"{order_id}_{event_name}"
+                status_val = results_cache.get(cache_key)
                 if isinstance(status_val, dict):
                     status = status_val.get("status")
                 else:
@@ -424,7 +426,9 @@ def register_routes(app):
 
             for m_order in listed_orders:
                 order_id = str(m_order.get("id"))
-                status_val = results_cache.get(order_id)
+                event_name = str(m_order.get("event"))
+                cache_key = f"{order_id}_{event_name}"
+                status_val = results_cache.get(cache_key)
                 if isinstance(status_val, dict):
                     old_status = status_val.get("status")
                 else:
@@ -433,15 +437,17 @@ def register_routes(app):
                 if old_status != "listed":
                     listed_order_ids.append(order_id)
                     send_telegram(
-                        f"✅ LISTED IN TICKETSSHOP\n"
+                        f"✅ ORDER LISTED IN TICKETSHOP\n\n"
                         f"Live Order: {order_id}\n"
-                        f"Event: {m_order.get('event')}"
+                        f"Event: {event_name}"
                     )
-                results_cache[order_id] = {"status": "listed", "date": datetime.now().strftime("%Y-%m-%d")}
+                results_cache[cache_key] = {"status": "listed", "date": datetime.now().strftime("%Y-%m-%d")}
 
             for m_order in missing_orders:
                 order_id = str(m_order.get("id"))
-                status_val = results_cache.get(order_id)
+                event_name = str(m_order.get("event"))
+                cache_key = f"{order_id}_{event_name}"
+                status_val = results_cache.get(cache_key)
                 if isinstance(status_val, dict):
                     old_status = status_val.get("status")
                 else:
@@ -450,12 +456,12 @@ def register_routes(app):
                 if old_status != "missing":
                     missing_order_ids.append(order_id)
                     send_telegram(
-                        f"⚠️ MISSING IN TICKETSSHOP\n"
+                        f"⚠️ ORDER NOT LISTED IN TICKETSHOP\n\n"
                         f"Live Order: {order_id}\n"
-                        f"Event: {m_order.get('event')}\n"
-                        f"Action: Please list/check this order."
+                        f"Event: {event_name}\n\n"
+                        f"Action: Please check/list this order in Ticketshop."
                     )
-                results_cache[order_id] = {"status": "missing", "date": datetime.now().strftime("%Y-%m-%d")}
+                results_cache[cache_key] = {"status": "missing", "date": datetime.now().strftime("%Y-%m-%d")}
             
             save_json_file(TICKETSSHOP_RESULTS_FILE, results_cache)
 
