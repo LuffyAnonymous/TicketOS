@@ -1,115 +1,285 @@
 import json
+import time
+import os
+import random
 from datetime import datetime
 from playwright.sync_api import sync_playwright
-from bs4 import BeautifulSoup
-from config import BASE_DIR
-from core.helpers import clean_text, parse_event_datetime
+from dotenv import load_dotenv
+import extensions as context
+from core.helpers import clean_text
 from platforms.base import OrderPlatformAdapter
-import os
+from config import BASE_DIR, FOOTBALLTICKETNET_STATE_FILE, SENT_FOOTBALLTICKETNET_ORDERS_FILE
 
-def parse_ftn_delivery_json(html: str):
-    soup = BeautifulSoup(html, "html.parser")
-    delivery_node = soup.select_one("#data-delivery")
+load_dotenv()
 
-    if not delivery_node:
-        raise RuntimeError("FootballTicketNet: #data-delivery not found")
-
-    raw = delivery_node.get("data-delivery", "").strip()
-    if not raw:
-        raise RuntimeError("FootballTicketNet: data-delivery is empty")
-
+def save_debug(page, name):
     try:
-        items = json.loads(raw)
-    except Exception as e:
-        raise RuntimeError(f"FootballTicketNet: failed to parse delivery JSON: {e}")
-
-    rows = []
-    latest_order = None
-
-    for item in items:
-        order_id = str(item.get("order_id", "")).strip()
-        if not order_id:
-            continue
-
-        qty = str(item.get("qty") or item.get("order_quantity") or "0").strip()
-        ticket_price = str(item.get("ticket_price") or "0").strip()
-
-        total_price = 0.0
-        try:
-            total_price = float(ticket_price) * float(qty or 0)
-        except Exception:
-            total_price = 0.0
-
-        event_ts = str(item.get("event_date") or "").strip()
-        event_date = "-"
-        if event_ts.isdigit():
-            try:
-                event_date = datetime.fromtimestamp(int(event_ts)).strftime("%d-%m-%Y %H:%M:%S")
-            except Exception:
-                event_date = "-"
-
-        delivery_status = clean_text(item.get("deliver_status") or "Unknown")
-        purchase_status = clean_text(item.get("purchase_status") or "")
-
-        row = {
-            "id": order_id,
-            "customer": clean_text(item.get("name") or "Unknown") or "Unknown",
-            "status": delivery_status or purchase_status or "Unknown",
-            "sale_date": "-",
-            "event_date": event_date,
-            "event": clean_text(item.get("event_name") or "-"),
-            "source": "FootballTicketNet",
-            "venue": clean_text(item.get("venue") or "-"),
-            "league": clean_text(item.get("tournament") or "-"),
-            "quantity": qty or "0",
-            "price_per_ticket": ticket_price or "0",
-            "total_price": f"{total_price:.2f}",
-            "category": clean_text(item.get("category") or item.get("order_category") or "-"),
-            "ticket_type": clean_text(item.get("ticket_type_name") or "-"),
-            "phone": clean_text(item.get("contact_numbers") or ""),
-            "comments": clean_text(item.get("comments") or ""),
-            "delivery_status": delivery_status,
-        }
-
-        rows.append(row)
-        latest_order = row
-
-    rows.sort(
-        key=lambda r: parse_event_datetime(r.get("event_date", "")) or datetime.min,
-        reverse=False
-    )
-
-    if rows:
-        latest_order = rows[0]
-
-    return rows, latest_order
-
-
-def fetch_ftn_delivery_html(username: str, password: str) -> str:
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-
-        page.goto("https://www.footballticketnet.com/", wait_until="networkidle", timeout=60000)
-        page.locator("a.login_btn.set2").click()
-        page.wait_for_timeout(1000)
-
-        try:
-            page.locator("button.link_supplier").click()
-            page.wait_for_timeout(500)
-        except Exception:
-            pass
-
-        page.locator("#supplier_email").fill(username)
-        page.locator("#supplier_password").click()
-        page.locator("#supplier_password").fill(password)
-        page.locator("#submit_supplier").click()
-        page.wait_for_load_state("networkidle", timeout=60000)
-
-        page.goto("https://www.footballticketnet.com/?action=delivery_info", wait_until="networkidle", timeout=60000)
         html = page.content()
-        browser.close()
-        return html
+        with open(os.path.join(BASE_DIR, f"debug_ftn_{name}.html"), "w", encoding="utf-8") as f:
+            f.write(html)
+        page.screenshot(path=os.path.join(BASE_DIR, f"debug_ftn_{name}.png"), full_page=True)
+        context.state.log(f"FootballTicketNet: debug saved -> debug_ftn_{name}.html")
+    except Exception as e:
+        context.state.log(f"FootballTicketNet: save_debug failed -> {e}")
+
+def scrape_ftn_deep(target_event=None):
+    from config import PLATFORM_CONFIGS
+    config = PLATFORM_CONFIGS.get("FootballTicketNet", {})
+    username = config.get("username", "").strip()
+    password = config.get("password", "").strip()
+
+    if not username or not password:
+        context.state.log("FootballTicketNet: ERROR - credentials not configured in config.py")
+        return [], None
+
+    context.state.log(f"FootballTicketNet: using email={username}")
+    results = []
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-setuid-sandbox',
+            ]
+        )
+
+        storage_state = FOOTBALLTICKETNET_STATE_FILE if os.path.exists(FOOTBALLTICKETNET_STATE_FILE) else None
+        if storage_state:
+            context.state.log("FootballTicketNet: loading saved session from disk")
+
+        browser_context = browser.new_context(
+            storage_state=storage_state,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
+            locale="en-GB",
+            timezone_id="Europe/London",
+        )
+
+        page = browser_context.new_page()
+
+        # Anti-bot: hide webdriver flag
+        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+        # Only block images, not CSS/JS (needed for form interaction)
+        page.route("**/*.{png,jpg,jpeg,gif,svg,webp}", lambda route: route.abort())
+
+        try:
+            # ─── STEP 1: Check if already logged in ─────────────────────
+            context.state.log("FootballTicketNet: STEP 1 - loading homepage")
+            page.goto("https://www.footballticketnet.com/", wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(2000)
+
+            is_logged_in = page.locator("a:has-text('Logout'), a[href*='logout']").count() > 0
+            context.state.log(f"FootballTicketNet: logged_in_check = {is_logged_in}")
+
+            # ─── STEP 2: Login if needed ─────────────────────────────────
+            if not is_logged_in:
+                context.state.log("FootballTicketNet: STEP 2 - starting login flow")
+
+                # Click the Login button in the top nav
+                login_btn = page.locator("a.login_btn").first
+                if login_btn.count() == 0:
+                    context.state.log("FootballTicketNet: ERROR - login button not found, saving debug")
+                    save_debug(page, "no_login_btn")
+                    browser.close()
+                    return [], None
+
+                login_btn.click()
+                page.wait_for_timeout(2000)
+
+                # Click the "Supplier" / "Seller" tab  (exact selector from user's DOM)
+                context.state.log("FootballTicketNet: clicking Supplier tab")
+                clicked_tab = page.evaluate("""() => {
+                    // Try exact path first
+                    let btn = document.querySelector('#wrapper > div.top_header.top_header_append > div > div.right_top > div > div.tab > button.tablinks.link_supplier');
+                    if (!btn) {
+                        // Fallback: any button with class link_supplier
+                        btn = document.querySelector('button.link_supplier');
+                    }
+                    if (!btn) {
+                        // Fallback: find by text
+                        btn = Array.from(document.querySelectorAll('button.tablinks')).find(b => b.textContent.trim().toLowerCase().includes('supplier') || b.textContent.trim().toLowerCase().includes('seller'));
+                    }
+                    if (btn) { btn.click(); return btn.textContent.trim(); }
+                    return null;
+                }""")
+                context.state.log(f"FootballTicketNet: Supplier tab click result = {clicked_tab}")
+                page.wait_for_timeout(2000)
+
+                # Wait for the supplier form to be visible
+                try:
+                    page.wait_for_selector("#supplier_email", timeout=10000)
+                except Exception:
+                    context.state.log("FootballTicketNet: ERROR - supplier_email field not visible after tab click")
+                    save_debug(page, "no_supplier_form")
+                    browser.close()
+                    return [], None
+
+                # Type credentials in a human-like way
+                context.state.log("FootballTicketNet: typing email")
+                page.locator("#supplier_email").click()
+                page.wait_for_timeout(300)
+                page.locator("#supplier_email").type(username, delay=random.randint(60, 120))
+
+                context.state.log("FootballTicketNet: typing password")
+                page.locator("#supplier_password").click()
+                page.wait_for_timeout(300)
+                page.locator("#supplier_password").type(password, delay=random.randint(60, 120))
+                page.wait_for_timeout(500)
+
+                # Click submit
+                context.state.log("FootballTicketNet: clicking submit")
+                submit = page.locator("#submit_supplier").first
+                if submit.count() > 0:
+                    submit.click()
+                else:
+                    page.keyboard.press("Enter")
+
+                # Wait for result — either logout link or error message
+                try:
+                    page.wait_for_selector("a:has-text('Logout'), a[href*='logout'], .error-message, .login-error", timeout=20000)
+                except Exception:
+                    pass
+
+                # Check result
+                page.wait_for_timeout(2000)
+                save_debug(page, "after_login_attempt")
+
+                if page.locator("a:has-text('Logout'), a[href*='logout']").count() > 0:
+                    context.state.log("FootballTicketNet: LOGIN SUCCESS - saving session")
+                    browser_context.storage_state(path=FOOTBALLTICKETNET_STATE_FILE)
+                else:
+                    # Extract any error message from page
+                    error_msg = ""
+                    try:
+                        error_el = page.locator(".error, .alert, .notification, [class*='error'], [class*='alert']").first
+                        if error_el.count() > 0:
+                            error_msg = clean_text(error_el.inner_text())
+                    except:
+                        pass
+                    context.state.log(f"FootballTicketNet: LOGIN FAILED - page_error='{error_msg}' | Check debug_ftn_after_login_attempt.html")
+                    browser.close()
+                    return [], None
+
+            # ─── STEP 3: Navigate to Delivery page ───────────────────────
+            context.state.log("FootballTicketNet: STEP 3 - navigating to delivery page")
+            page.goto("https://www.footballticketnet.com/?action=delivery_info", wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(3000)
+            save_debug(page, "delivery_page")
+
+            # Log what we actually see on delivery page
+            page_title = page.title()
+            context.state.log(f"FootballTicketNet: delivery page title = '{page_title}'")
+
+            # Check if we are still logged in after navigation
+            still_logged = page.locator("a:has-text('Logout'), a[href*='logout']").count() > 0
+            context.state.log(f"FootballTicketNet: still_logged_in = {still_logged}")
+
+            if not still_logged:
+                context.state.log("FootballTicketNet: ERROR - session lost after delivery page navigation")
+                # Delete stale session file so next run does fresh login
+                if os.path.exists(FOOTBALLTICKETNET_STATE_FILE):
+                    os.remove(FOOTBALLTICKETNET_STATE_FILE)
+                browser.close()
+                return [], None
+
+            # ─── STEP 4: Get HTML and find actual selectors ──────────────
+            # Parse with BS4 so we can see what is actually in the page
+            from bs4 import BeautifulSoup
+            html = page.content()
+            soup = BeautifulSoup(html, "html.parser")
+
+            all_trs = soup.find_all("tr")
+            context.state.log(f"FootballTicketNet: total <tr> on delivery page = {len(all_trs)}")
+
+            # Log all <tr> classes so we know the real selector
+            tr_classes_seen = set()
+            for tr in all_trs[:50]:
+                cls = " ".join(tr.get("class", []))
+                if cls:
+                    tr_classes_seen.add(cls)
+            context.state.log(f"FootballTicketNet: tr classes found = {tr_classes_seen}")
+
+            # ─── STEP 5: Identify event rows ─────────────────────────────
+            # Try several selectors based on common FTN patterns
+            event_rows = page.locator("tr.event_row_delivery, tr[class*='event'], tr[onclick*='event'], [class*='event_row']")
+            count = event_rows.count()
+            context.state.log(f"FootballTicketNet: event rows found = {count}")
+
+            if count == 0:
+                context.state.log("FootballTicketNet: WARN - 0 events. Check debug_ftn_delivery_page.html for real selector")
+                browser.close()
+                return [], None
+
+            for i in range(count):
+                row = event_rows.nth(i)
+                event_name = clean_text(row.inner_text())
+
+                if target_event and target_event.lower() not in event_name.lower():
+                    continue
+
+                context.state.log(f"FootballTicketNet: opening event[{i}] -> {event_name}")
+                row.click()
+                page.wait_for_timeout(2000)
+
+                # ─── STEP 6: Categories ───────────────────────────────────
+                cat_rows = page.locator("tr.category_row, tr[class*='cat'], [class*='category_row']")
+                for j in range(cat_rows.count()):
+                    cat_row = cat_rows.nth(j)
+                    cat_name = clean_text(cat_row.inner_text())
+                    cat_row.click()
+                    page.wait_for_timeout(2000)
+
+                    # ─── STEP 7: Orders ───────────────────────────────────
+                    order_rows = page.locator("tr.order_row_delivery, tr[class*='order_row'], [class*='order_id_delivery']")
+                    for k in range(order_rows.count()):
+                        order_row = order_rows.nth(k)
+                        eye = order_row.locator("i.fa-eye, .fa-eye, .view_order_btn, [class*='view']").first
+                        if eye.count() == 0:
+                            continue
+
+                        eye.click()
+                        page.wait_for_timeout(3000)
+
+                        try:
+                            oid = clean_text(page.locator(".order_id, #order_id_val, [class*='order_id']").first.inner_text()).replace("Order #", "").strip()
+                            cust = clean_text(page.locator(".client_name, #client_name, [class*='client_name']").first.inner_text())
+                            phone = clean_text(page.locator(".client_phone, #client_phone, [class*='client_phone']").first.inner_text())
+                            stat = clean_text(page.locator(".order_status, #order_status, [class*='order_status']").first.inner_text())
+
+                            results.append({
+                                "id": oid,
+                                "event": event_name,
+                                "category": cat_name,
+                                "customer": cust,
+                                "phone": phone,
+                                "status": stat,
+                                "source": "FootballTicketNet",
+                                "sale_date": datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                            })
+                            context.state.log(f"FootballTicketNet: extracted order {oid}")
+                        except Exception as e:
+                            context.state.log(f"FootballTicketNet: modal extraction error -> {repr(e)}")
+                            save_debug(page, f"modal_error_{k}")
+
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(1000)
+
+            browser.close()
+            context.state.log(f"FootballTicketNet: DONE - total orders extracted = {len(results)}")
+            return results, results[0] if results else None
+
+        except Exception as e:
+            context.state.log(f"FootballTicketNet: UNHANDLED ERROR -> {repr(e)}")
+            try:
+                save_debug(page, "exception")
+            except:
+                pass
+            browser.close()
+            return [], None
 
 
 class FootballTicketNetAdapter(OrderPlatformAdapter):
@@ -117,17 +287,8 @@ class FootballTicketNetAdapter(OrderPlatformAdapter):
         super().__init__("FootballTicketNet", config)
 
     def fetch_orders(self):
-        username = self.config.get("username", "").strip()
-        password = self.config.get("password", "").strip()
+        return scrape_ftn_deep()
 
-        if not username or not password:
-            raise RuntimeError("FootballTicketNet: username/password not configured")
-
-        context.state.log("FootballTicketNet: opening seller login")
-        html = fetch_ftn_delivery_html(username, password)
-        context.state.log("FootballTicketNet: parsing delivery JSON")
-        rows, latest_order = parse_ftn_delivery_json(html)
-        context.state.log(f"FootballTicketNet: parsed {len(rows)} order rows")
-        return rows, latest_order
-
-
+    def fetch_orders_by_event(self, event_name):
+        res, _ = scrape_ftn_deep(target_event=event_name)
+        return res

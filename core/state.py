@@ -26,6 +26,8 @@ class AppState:
         default = {
             "interval_minutes": 30,
             "sleep_window_enabled": False,
+            "monitor_liveticketgroup": True,
+            "monitor_footballticketnet": True,
         }
         saved = load_json_file(SETTINGS_FILE, default)
         if isinstance(saved, dict):

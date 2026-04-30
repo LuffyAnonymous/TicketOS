@@ -31,30 +31,37 @@ def register_routes(app):
     def favicon():
         return "", 204
 
-    @app.route("/api/check-ltg-order-status", methods=["POST"])
+    @app.post("/api/check-order-status")
     @login_required
-    def check_ltg_status():
+    def api_check_order_status():
         data = request.get_json(force=True, silent=True) or {}
+        platform_name = data.get("platform", "").strip()
         event_name = data.get("event_name", "").strip()
-        if not event_name:
-            return jsonify({"error": "Event name is required."}), 400
 
-        from platforms.liveticketgroup import get_ltg_adapter
-        adapter = get_ltg_adapter()
+        if not platform_name or not event_name:
+            return jsonify({"error": "Platform and event name are required."}), 400
+
+        context.state.log(f"Manual check: Platform={platform_name}, Event={event_name}")
+
+        from platforms.registry import platform_adapters
+        adapter = next((a for a in platform_adapters if a.source_name == platform_name), None)
         if not adapter:
-            return jsonify({"error": "LiveTicketGroup not found or not enabled."}), 400
+            context.state.log(f"Manual check: Platform '{platform_name}' not found.")
+            return jsonify({"error": f"Platform '{platform_name}' not found or not enabled."}), 400
 
         try:
+            # This will use the deep scraper for FTN if it's the FTN adapter
             rows = adapter.fetch_orders_by_event(event_name)
+            context.state.log(f"Manual check: {len(rows)} orders found for event '{event_name}' on {platform_name}")
         except Exception as e:
-            context.state.log(f"Manual LTG check failed: {e}")
+            context.state.log(f"Manual check FAILED for {platform_name}: {repr(e)}")
             return jsonify({"error": f"Failed to fetch orders: {str(e)}"}), 500
 
-        from config import LTG_STATUS_ALERTS_FILE
+        from config import ORDER_STATUS_ALERTS_FILE
         from core.storage import load_json_file, save_json_file
         from services.telegram_service import send_telegram
 
-        history = load_json_file(LTG_STATUS_ALERTS_FILE, {})
+        history = load_json_file(ORDER_STATUS_ALERTS_FILE, {})
         changed = False
 
         grouped = {
@@ -72,16 +79,17 @@ def register_routes(app):
             cat = "submitted"
             if "cancel" in status_raw:
                 cat = "cancelled"
-            elif "resol" in resale_raw or "resale" in resale_raw:
+            elif "resol" in resale_raw or "resale" in resale_raw or "resold" in status_raw:
                 cat = "resold"
             elif "process" in status_raw:
                 cat = "processed"
-            elif "complet" in status_raw:
+            elif "complet" in status_raw or "submit" in status_raw:
                 cat = "submitted"
                 
             row["dashboard_status"] = cat
             grouped[cat].append(row)
             
+            # Alert logic for manual check (Cancelled or Resold only)
             alert_type = None
             if cat == "cancelled":
                 alert_type = "cancelled"
@@ -89,27 +97,48 @@ def register_routes(app):
                 alert_type = "resold"
 
             if alert_type:
-                hist_key = f"{order_id}_{alert_type}"
+                hist_key = f"{platform_name}_{order_id}_{event_name}_{alert_type}"
                 if not history.get(hist_key):
-                    title = "❌ ORDER CANCELLED" if alert_type == "cancelled" else "🔁 ORDER RESOLD"
-                    msg = (
-                        f"{title}\n\n"
-                        f"Order: {order_id}\n"
-                        f"Event: {row.get('event', '-')}\n"
-                        f"Customer: {row.get('customer', '-')}"
-                    )
+                    if alert_type == "cancelled":
+                        msg = (
+                            f"❌ ORDER CANCELLED\n"
+                            f"Platform: {platform_name}\n"
+                            f"Order: {order_id}\n"
+                            f"Event: {event_name}\n"
+                            f"Status: {row.get('status', 'Cancelled')}"
+                        )
+                    else: # resold
+                        msg = (
+                            f"🔁 ORDER RESOLD / RESALE\n"
+                            f"Platform: {platform_name}\n"
+                            f"Order: {order_id}\n"
+                            f"Event: {event_name}\n"
+                            f"Status: {row.get('status', 'Resold')}"
+                        )
+                    
                     send_telegram(msg)
                     history[hist_key] = True
                     changed = True
+                    context.state.log(f"Manual check: alert SENT for {platform_name} order {order_id}")
 
         if changed:
-            save_json_file(LTG_STATUS_ALERTS_FILE, history)
+            save_json_file(ORDER_STATUS_ALERTS_FILE, history)
+
+        # Update global state so these orders appear in dashboard if needed
+        # Actually, manual check shouldn't necessarily pollute the active monitoring rows,
+        # but the user said "If alert is sent, the order must appear in the dashboard".
+        # We can add them to the state.
+        for cat_list in grouped.values():
+            for r in cat_list:
+                context.state.upsert_sent_order_row(r)
 
         return jsonify({
             "success": True,
+            "platform": platform_name,
             "event": event_name,
             "results": grouped
         })
+
 
     @app.get("/login")
     def login_page():
@@ -499,7 +528,7 @@ def register_routes(app):
     def api_toggle_setting():
         data = request.get_json(force=True, silent=True) or {}
         name = data.get("name", "")
-        allowed = {"sleep_window_enabled"}
+        allowed = {"sleep_window_enabled", "monitor_liveticketgroup", "monitor_footballticketnet"}
         if name not in allowed:
             return jsonify({"error": "Invalid setting name"}), 400
         context.state.settings[name] = not bool(context.state.settings.get(name))
@@ -603,4 +632,19 @@ def register_routes(app):
             return jsonify({"ok": True})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+
+    @app.post("/api/check-footballticketnet-orders")
+    @login_required
+    def api_check_ftn():
+        def worker():
+            seen_orders = context.state.load_seen_orders()
+            try:
+                from services.order_service import execute_check_cycle
+                execute_check_cycle(seen_orders)
+                context.state.log("Manual FTN check finished")
+            except Exception as e:
+                context.state.log(f"Manual FTN check failed: {e}")
+
+        threading.Thread(target=worker, daemon=True).start()
+        return jsonify({"ok": True})
 

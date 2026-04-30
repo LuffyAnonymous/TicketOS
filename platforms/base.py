@@ -9,3 +9,7 @@ class OrderPlatformAdapter(ABC):
     def fetch_orders(self):
         pass
 
+    @abstractmethod
+    def fetch_orders_by_event(self, event_name):
+        pass
+

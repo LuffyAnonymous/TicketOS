@@ -28,9 +28,9 @@ PLATFORM_CONFIGS = {
         "orders_url": "",
     },
     "FootballTicketNet": {
-        "enabled": False,
-        "username": "",
-        "password": "",
+        "enabled": True,
+        "username": os.environ.get("FOOTBALLTICKETNET_USERNAME", "tony@footballticketshub.com"),
+        "password": os.environ.get("FOOTBALLTICKETNET_PASSWORD", "ClusterH108"),
         "login_url": "https://www.footballticketnet.com/",
         "delivery_url": "https://www.footballticketnet.com/?action=delivery_info",
     },
@@ -63,7 +63,7 @@ TICKETSSHOP_RESULTS_FILE = os.path.join(BASE_DIR, "ticketsshop_check_results.jso
 USERS_FILE = os.path.join(BASE_DIR, "users.json")
 ORDER_DETAILS_CACHE_FILE = os.path.join(BASE_DIR, "order_details_cache.json")
 ORDER_STATUS_STATE_FILE = os.path.join(BASE_DIR, "order_status_state.json")
-LTG_STATUS_ALERTS_FILE = os.path.join(BASE_DIR, "ltg_status_alerts.json")
+ORDER_STATUS_ALERTS_FILE = os.path.join(BASE_DIR, "order_status_alerts.json")
 
 DEBUG_ORDERS_HTML = os.path.join(BASE_DIR, "debug_orders_page.html")
 DEBUG_LOGIN_HTML = os.path.join(BASE_DIR, "debug_login_response.html")
@@ -72,6 +72,9 @@ DEBUG_ORDER_DETAILS_HTML = os.path.join(BASE_DIR, "debug_order_details.html")
 
 LOGIN_STATE_TREE_RAW = '["",{"children":["(landing)",{"children":["login",{"children":["__PAGE__",{},null,null]},null,null]},null,null,true]},null,null]'
 LOGIN_STATE_TREE_ENCODED = quote(LOGIN_STATE_TREE_RAW)
+
+SENT_FOOTBALLTICKETNET_ORDERS_FILE = os.path.join(BASE_DIR, "sent_footballticketnet_orders.json")
+FOOTBALLTICKETNET_STATE_FILE = os.path.join(BASE_DIR, "footballticketnet_state.json")
 
 AUTO_CACHE_THREADS = 3
 AUTO_CACHE_SLEEP_SECONDS = 0.8

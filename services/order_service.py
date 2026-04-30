@@ -64,8 +64,18 @@ def check_all_platforms_once(seen_orders):
     all_rows = []
     latest_candidates = []
 
+    mon_ltg = context.state.settings.get("monitor_liveticketgroup", True)
+    mon_ftn = context.state.settings.get("monitor_footballticketnet", True)
+
     for adapter in context.platform_adapters:
         try:
+            if adapter.source_name == "LiveTicketGroup" and not mon_ltg:
+                context.state.log("LiveTicketGroup: monitoring disabled in settings, skipping")
+                continue
+            if adapter.source_name == "FootballTicketNet" and not mon_ftn:
+                context.state.log("FootballTicketNet: monitoring disabled in settings, skipping")
+                continue
+
             rows, latest_order = adapter.fetch_orders()
             all_rows.extend(rows)
             if latest_order:
@@ -80,29 +90,55 @@ def check_all_platforms_once(seen_orders):
     )
     context.state.current_order_rows = all_rows
 
-    from config import ORDER_STATUS_STATE_FILE
+    from config import ORDER_STATUS_STATE_FILE, SENT_FOOTBALLTICKETNET_ORDERS_FILE
     from core.storage import load_json_file, save_json_file
     from core.helpers import standardize_status
     
     status_state = load_json_file(ORDER_STATUS_STATE_FILE, {})
     status_state_changed = False
-    
+    ftn_sent = set(load_json_file(SENT_FOOTBALLTICKETNET_ORDERS_FILE, []))
+    ftn_changed = False
+
     for row in all_rows:
         source = clean_text(row.get("source", ""))
         order_id = clean_text(row.get("id", ""))
         if not source or not order_id:
             continue
             
-        if source.lower() != "liveticketgroup":
-            continue
-            
         key = f"{source}::{order_id}"
+        
+        # 1. New Order Alerts
+        if source == "FootballTicketNet":
+            # ftn_sent is a set of platform_order_id
+            if key not in ftn_sent:
+                msg = (
+                    f"🟢 NEW FOOTBALLTICKETNET ORDER\n\n"
+                    f"Order: {order_id}\n"
+                    f"Event: {row.get('event', '-')}\n"
+                    f"Category: {row.get('category', '-')}\n"
+                    f"Customer: {row.get('customer', '-')}\n"
+                    f"Mobile: {row.get('phone', '-')}\n"
+                    f"Status: {row.get('status', '-')}"
+                )
+                send_telegram(msg)
+                ftn_sent.add(key)
+                ftn_changed = True
+                context.state.log(f"FootballTicketNet: alert SENT for order -> {order_id}")
+            else:
+                context.state.log(f"FootballTicketNet: duplicate alert skipped -> {order_id}")
+        
+        elif source == "LiveTicketGroup":
+            if key not in seen_orders:
+                send_telegram(build_order_message(row))
+                seen_orders.add(key)
+                context.state.save_seen_orders(seen_orders)
+                context.state.log(f"LiveTicketGroup: alert SENT for order -> {order_id}")
+
+        # 2. Status Tracking for Dashboard
         raw_status = row.get("status", "")
         std_status = standardize_status(raw_status)
         
         old_data = status_state.get(key, {})
-        old_status = old_data.get("order_status", "new")
-        
         if not old_data:
             status_state[key] = {
                 "order_number": order_id,
@@ -110,54 +146,27 @@ def check_all_platforms_once(seen_orders):
                 "customer": row.get("customer", "-"),
                 "sale_date": row.get("sale_date", "-"),
                 "order_status": std_status,
-                "last_status_sent": std_status if std_status != "new" else "none" 
+                "source": source
             }
             status_state_changed = True
+            context.state.log(f"{source}: saved to dashboard -> {order_id}")
         else:
-            if std_status != old_status:
+            if std_status != old_data.get("order_status"):
                 status_state[key]["order_status"] = std_status
-                
-                # No automatic alerts for status changes anymore.
-                # Just update the state for the dashboard.
-                        
                 status_state_changed = True
 
     if status_state_changed:
         save_json_file(ORDER_STATUS_STATE_FILE, status_state)
+    
+    if ftn_changed:
+        save_json_file(SENT_FOOTBALLTICKETNET_ORDERS_FILE, list(ftn_sent))
 
-    latest_order = None
-    latest_dt = None
-    for order in latest_candidates:
-        dt = parse_sale_datetime(order.get("sale_date", ""))
-        if dt is not None and (latest_dt is None or dt > latest_dt):
-            latest_dt = dt
-            latest_order = order
-
-    if not latest_order and all_rows:
+    if all_rows:
         latest_order = all_rows[0]
-
-    if not latest_order:
-        context.state.log("No latest order found")
-        return
-
-    context.state.set_last_order(latest_order["id"], latest_order["event"], latest_order["sale_date"])
-
-    order_key = unique_order_key(latest_order)
-
-    if order_key not in seen_orders and not is_event_expired(latest_order["event_date"]):
-        # 1. Send the initial Telegram alert immediately
-        send_telegram(build_order_message(latest_order))
-        
-        seen_orders.add(order_key)
-        context.state.save_seen_orders(seen_orders)
-        latest_order["status"] = latest_order.get("status") or "Sent to Telegram"
-        context.state.upsert_sent_order_row(latest_order)
-        context.state.set_last_alert()
-        context.state.log(f"New order sent -> {order_key}")
-        
+        context.state.set_last_order(latest_order["id"], latest_order["event"], latest_order["sale_date"])
     else:
-        context.state.upsert_sent_order_row(latest_order)
-        context.state.log("No new latest order")
+        context.state.log("No orders found in this cycle")
+
 
 
 def is_sleep_window(now=None):
@@ -206,9 +215,10 @@ def execute_check_cycle(seen_orders):
 def bot_worker():
     seen_orders = context.state.load_seen_orders()
     context.state.running = True
-    context.state.log("Bot started")
+    context.state.log("Bot worker thread initiated")
 
     try:
+        context.state.log("Bot starting first check cycle...")
         while not context.state.stop_event.is_set():
             if context.state.settings.get("sleep_window_enabled", False) and is_sleep_window():
                 context.state.session_status = "Sleeping (12AM-5AM)"

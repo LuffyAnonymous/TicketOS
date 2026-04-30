@@ -265,8 +265,22 @@ async function refresh(){
       statusText.style.color = "var(--muted)";
     }
   }
+
+  // Update platform toggles
+  const ltgToggle = document.getElementById('monitorLtgToggle');
+  if (ltgToggle) ltgToggle.checked = data.summary.settings?.monitor_liveticketgroup ?? true;
   
-  setStatusText(data.summary.status||'Stopped'); setSleepButtons(data.summary.settings?.sleep_window_enabled); renderSourceBreakdown(data.summary.source_counts||{}); renderMembers(data.members||[]); refreshDerivedViews();
+  const ftnToggle = document.getElementById('monitorFtnToggle');
+  if (ftnToggle) ftnToggle.checked = data.summary.settings?.monitor_footballticketnet ?? true;
+
+  const sleepToggle = document.getElementById('sleepToggleSettings');
+  if (sleepToggle) {
+    const isSleep = data.summary.settings?.sleep_window_enabled;
+    sleepToggle.textContent = isSleep ? 'Sleep Window: ON' : 'Sleep Window: OFF';
+    sleepToggle.classList.toggle('active', !!isSleep);
+  }
+  
+  renderSourceBreakdown(data.summary.source_counts||{}); renderMembers(data.members||[]); refreshDerivedViews();
   
   try {
     const totalsResponse = await api('/api/event-totals');
@@ -322,66 +336,73 @@ function setupTabs(){ const links=document.querySelectorAll('.nav-link'); const 
 async function fullRefresh(){ await refresh(); await refreshCharts(); }
 loadTheme(); setupTabs(); updateGreeting(); fullRefresh(); setInterval(fullRefresh,4000); setInterval(updateGreeting,60000);
 
-async function checkLtgStatus() {
-    const input = document.getElementById('manualLtgEventInput');
-    if(!input) return;
+async function checkOrderStatus() {
+    const platformSelect = document.getElementById('statusPlatformSelect');
+    const input = document.getElementById('statusEventInput');
+    if(!platformSelect || !input) return;
+
+    const platform = platformSelect.value;
     const eventName = input.value.trim();
+
     if (!eventName) {
         showToast("Please enter an event name first.");
         input.focus();
         return;
     }
 
-    const btn = document.getElementById('btnCheckLtgStatus');
+    const btn = document.getElementById('btnCheckOrderStatus');
     const ogText = btn.textContent;
     btn.textContent = "CHECKING...";
     btn.disabled = true;
 
     try {
-        const data = await api('/api/check-ltg-order-status', {
+        const data = await api('/api/check-order-status', {
             method: 'POST',
-            body: JSON.stringify({ event_name: eventName })
+            body: JSON.stringify({ platform: platform, event_name: eventName })
         });
         
         document.getElementById('manualLtgResultSection').style.display = 'block';
-        document.getElementById('manualLtgResultEvent').textContent = `Showing matched orders for: ${data.event}`;
+        document.getElementById('manualLtgResultEvent').innerHTML = `
+            <strong>Platform:</strong> ${data.platform}<br>
+            <strong>Event:</strong> ${data.event}
+        `;
 
         const g = data.results || { processed: [], cancelled: [], submitted: [], resold: [] };
         
         document.getElementById('manualLtgSmallStats').innerHTML = `
             <button class="btn btn-secondary manual-filter-btn" style="font-size: 11px; padding: 4px 10px; height: auto; border-radius: 4px; width: 140px; display: flex; justify-content: space-between;" onclick="filterManualResults('All')"><span>All</span><span>${g.processed.length + g.submitted.length + g.cancelled.length + g.resold.length}</span></button>
             <button class="btn btn-secondary manual-filter-btn" style="font-size: 11px; padding: 4px 10px; height: auto; border-radius: 4px; width: 140px; display: flex; justify-content: space-between;" onclick="filterManualResults('Processed')"><span>Processed</span><span>${g.processed.length}</span></button>
-            <button class="btn btn-secondary manual-filter-btn" style="font-size: 11px; padding: 4px 10px; height: auto; border-radius: 4px; width: 140px; display: flex; justify-content: space-between;" onclick="filterManualResults('Submitted / Complete')"><span>Completed</span><span>${g.submitted.length}</span></button>
+            <button class="btn btn-secondary manual-filter-btn" style="font-size: 11px; padding: 4px 10px; height: auto; border-radius: 4px; width: 140px; display: flex; justify-content: space-between;" onclick="filterManualResults('Submitted / Complete')"><span>Submitted / Complete</span><span>${g.submitted.length}</span></button>
             <button class="btn btn-secondary manual-filter-btn" style="font-size: 11px; padding: 4px 10px; height: auto; border-radius: 4px; width: 140px; display: flex; justify-content: space-between;" onclick="filterManualResults('Cancelled')"><span>Cancelled</span><span>${g.cancelled.length}</span></button>
+            <button class="btn btn-secondary manual-filter-btn" style="font-size: 11px; padding: 4px 10px; height: auto; border-radius: 4px; width: 140px; display: flex; justify-content: space-between;" onclick="filterManualResults('Resale / Resold')"><span>Resold</span><span>${g.resold.length}</span></button>
         `;
 
         const orderGroups = [
             { label: 'Processed', items: g.processed, statusClass: 'processed' },
             { label: 'Submitted / Complete', items: g.submitted, statusClass: 'pending' },
-            { label: 'Resold', items: g.resold, statusClass: 'resold' },
+            { label: 'Resale / Resold', items: g.resold, statusClass: 'resold' },
             { label: 'Cancelled', items: g.cancelled, statusClass: 'cancelled' }
         ];
 
-        window.currentManualLtgGroups = orderGroups;
+        window.currentManualStatusGroups = orderGroups;
         filterManualResults('All');
-        showToast("LTG Status Check complete!");
+        showToast("Status Check complete!");
         
     } catch (e) {
-        showToast("Error checking LTG status: " + e.message);
+        showToast("Error checking status: " + e.message);
     } finally {
         btn.textContent = ogText;
         btn.disabled = false;
     }
 }
 
-window.currentManualLtgGroups = null;
+window.currentManualStatusGroups = null;
 function filterManualResults(type) {
-    if (!window.currentManualLtgGroups) return;
+    if (!window.currentManualStatusGroups) return;
     
-    // Update button active state styling
     const btns = document.querySelectorAll('.manual-filter-btn');
     btns.forEach(b => {
-        if(b.textContent.startsWith(type === 'Submitted / Complete' ? 'Completed' : type)) {
+        if(b.textContent.includes(type)) {
             b.style.backgroundColor = 'var(--primary)';
             b.style.color = '#fff';
             b.style.borderColor = 'var(--primary)';
@@ -394,24 +415,38 @@ function filterManualResults(type) {
 
     let html = '';
     const groupsToRender = type === 'All' 
-        ? window.currentManualLtgGroups 
-        : window.currentManualLtgGroups.filter(g => g.label === type);
+        ? window.currentManualStatusGroups 
+        : window.currentManualStatusGroups.filter(g => g.label === type);
 
     for (const group of groupsToRender) {
         if (group.items.length > 0) {
             group.items.forEach(r => {
                 html += `<tr>
-                    <td><div style="display:flex; align-items:center; gap:6px;"><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'LiveTicketGroup')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button><span style="cursor:pointer; font-size:14px;" onclick="copyToClipboard('${esc(r.id||'-')}')" title="Copy ID">📋</span></div></td>
+                    <td><div style="display:flex; align-items:center; gap:6px;"><button class="order-link-btn" onclick="openOrderDrawer('${encodeURIComponent(r.source||'')}','${encodeURIComponent(r.id||'')}','${encodeURIComponent(r.event||'')}')">${esc(r.id||'-')}</button><span style="cursor:pointer; font-size:14px;" onclick="copyToClipboard('${esc(r.id||'-')}')" title="Copy ID">📋</span></div></td>
                     <td>${esc(r.customer||'-')}</td>
                     <td>${esc(r.sale_date||'-')}</td>
-                    <td><span class="status-pill ${group.statusClass}">${esc(r.dashboard_status||'')}</span></td>
+                    <td><span class="status-pill ${group.statusClass}">${esc(r.status||r.dashboard_status||'')}</span></td>
                 </tr>`;
             });
         }
     }
     
     if (!html) {
-        html = `<tr><td colspan="4" class="muted">No ${type.toLowerCase()} orders found.</td></tr>`;
+        html = `<tr><td colspan="4" class="muted" style="text-align:center; padding: 20px;">No ${type.toLowerCase()} orders found.</td></tr>`;
     }
     document.getElementById('manualLtgResultBody').innerHTML = html;
+}
+
+async function checkOrderStatusSpecific(platform) {
+    showToast(`Testing connection to ${platform}...`);
+    try {
+        const data = await api('/api/check-order-status', {
+            method: 'POST',
+            body: JSON.stringify({ platform: platform, event_name: 'test' })
+        });
+        showToast(`${platform} connection successful!`);
+        await fullRefresh();
+    } catch (e) {
+        showToast(`${platform} connection failed: ${e.message}`);
+    }
 }
