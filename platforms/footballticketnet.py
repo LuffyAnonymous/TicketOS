@@ -66,13 +66,18 @@ def scrape_ftn_deep(target_event=None):
         # Only block images, not CSS/JS (needed for form interaction)
         page.route("**/*.{png,jpg,jpeg,gif,svg,webp}", lambda route: route.abort())
 
+        def is_logged_in_check():
+            # FTN uses href="#" for logout, so check by text content
+            count = page.locator("a:has-text('Log Out'), a:has-text('Logout'), a:has-text('Sign Out')").count()
+            return count > 0
+
         try:
             # ─── STEP 1: Check if already logged in ─────────────────────
             context.state.log("FootballTicketNet: STEP 1 - loading homepage")
             page.goto("https://www.footballticketnet.com/", wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(2000)
 
-            is_logged_in = page.locator("a:has-text('Logout'), a[href*='logout']").count() > 0
+            is_logged_in = is_logged_in_check()
             context.state.log(f"FootballTicketNet: logged_in_check = {is_logged_in}")
 
             # ─── STEP 2: Login if needed ─────────────────────────────────
@@ -148,7 +153,7 @@ def scrape_ftn_deep(target_event=None):
                 page.wait_for_timeout(2000)
                 save_debug(page, "after_login_attempt")
 
-                if page.locator("a:has-text('Logout'), a[href*='logout']").count() > 0:
+                if is_logged_in_check():
                     context.state.log("FootballTicketNet: LOGIN SUCCESS - saving session")
                     browser_context.storage_state(path=FOOTBALLTICKETNET_STATE_FILE)
                 else:
@@ -164,30 +169,44 @@ def scrape_ftn_deep(target_event=None):
                     browser.close()
                     return [], None
 
-            # ─── STEP 3: Navigate to Delivery page ───────────────────────
-            context.state.log("FootballTicketNet: STEP 3 - navigating to delivery page")
-            page.goto("https://www.footballticketnet.com/?action=delivery_info", wait_until="domcontentloaded", timeout=60000)
+            # ─── STEP 3: Load Supplier Panel & click Delivery tab ────────
+            context.state.log("FootballTicketNet: STEP 3 - loading supplier panel")
+            page.goto("https://www.footballticketnet.com/supplier-information", wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(3000)
-            save_debug(page, "delivery_page")
 
-            # Log what we actually see on delivery page
-            page_title = page.title()
-            context.state.log(f"FootballTicketNet: delivery page title = '{page_title}'")
-
-            # Check if we are still logged in after navigation
-            still_logged = page.locator("a:has-text('Logout'), a[href*='logout']").count() > 0
-            context.state.log(f"FootballTicketNet: still_logged_in = {still_logged}")
-
-            if not still_logged:
-                context.state.log("FootballTicketNet: ERROR - session lost after delivery page navigation")
-                # Delete stale session file so next run does fresh login
+            if not is_logged_in_check():
+                context.state.log("FootballTicketNet: ERROR - session lost on supplier-information page")
                 if os.path.exists(FOOTBALLTICKETNET_STATE_FILE):
                     os.remove(FOOTBALLTICKETNET_STATE_FILE)
                 browser.close()
                 return [], None
 
-            # ─── STEP 4: Get HTML and find actual selectors ──────────────
-            # Parse with BS4 so we can see what is actually in the page
+            # Click the "Delivery" link/tab in the supplier panel nav
+            context.state.log("FootballTicketNet: clicking Delivery nav link")
+            delivery_nav = page.locator("a[href='?action=delivery_info']:has-text('Delivery')").first
+            if delivery_nav.count() == 0:
+                delivery_nav = page.locator("a:has-text('Delivery')").first
+
+            if delivery_nav.count() > 0:
+                delivery_nav.click()
+                context.state.log("FootballTicketNet: clicked Delivery, waiting for AJAX content...")
+                # Wait for the table/content to appear after AJAX loads
+                try:
+                    page.wait_for_selector("table, tr, [class*='event'], [class*='order'], [class*='delivery']", timeout=15000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(3000)
+            else:
+                context.state.log("FootballTicketNet: Delivery link not found, trying direct URL")
+                page.goto("https://www.footballticketnet.com/?action=delivery_info", wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(5000)
+
+            save_debug(page, "delivery_page")
+            page_title = page.title()
+            page_url = page.url
+            context.state.log(f"FootballTicketNet: delivery page title='{page_title}' url='{page_url}'")
+
+            # ─── STEP 4: Parse HTML to discover real selectors ───────────
             from bs4 import BeautifulSoup
             html = page.content()
             soup = BeautifulSoup(html, "html.parser")
@@ -195,13 +214,17 @@ def scrape_ftn_deep(target_event=None):
             all_trs = soup.find_all("tr")
             context.state.log(f"FootballTicketNet: total <tr> on delivery page = {len(all_trs)}")
 
-            # Log all <tr> classes so we know the real selector
             tr_classes_seen = set()
-            for tr in all_trs[:50]:
+            for tr in all_trs[:100]:
                 cls = " ".join(tr.get("class", []))
                 if cls:
                     tr_classes_seen.add(cls)
             context.state.log(f"FootballTicketNet: tr classes found = {tr_classes_seen}")
+
+            # Also log any divs/containers with delivery-related classes
+            delivery_divs = soup.find_all(attrs={"class": lambda c: c and any("delivery" in x.lower() or "event" in x.lower() or "order" in x.lower() for x in (c if isinstance(c,list) else [c]))})
+            div_classes = set(" ".join(d.get("class",[])) for d in delivery_divs[:20])
+            context.state.log(f"FootballTicketNet: delivery/event/order div classes = {div_classes}")
 
             # ─── STEP 5: Identify event rows ─────────────────────────────
             # Try several selectors based on common FTN patterns

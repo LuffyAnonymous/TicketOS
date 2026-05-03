@@ -8,17 +8,37 @@ def clean_text(text):
     text = re.sub(r"\n\s*\n+", "\n", text)
     return text.strip()
 
-def standardize_status(raw_status):
+def standardize_status(raw_status, source=None, resale_status=None):
+    """
+    Map raw platform status string to an internal status for dashboard cards.
+
+    Rules for LiveTicketGroup:
+    - 'cancelled' → cancelled
+    - 'resale' or 'resold' (in status or resale_status) → resold
+    - 'processed', 'submitted', 'complete', 'completed' → pending (while visible)
+    - everything else → pending
+
+    'completed' internal status is ONLY for orders that were previously tracked but later disappeared.
+    """
     if not raw_status:
-        return "new"
-    low = clean_text(raw_status).lower()
-    if "cancel" in low:
+        return "pending"
+    
+    status_low = clean_text(str(raw_status)).lower()
+    resale_low = clean_text(str(resale_status or "")).lower()
+
+    # 1. Cancelled check
+    if "cancel" in status_low:
         return "cancelled"
-    if "resol" in low or "resold" in low:
+    
+    # 2. Resold check (includes resale_status)
+    if "resol" in status_low or "resale" in status_low or "resold" in status_low:
         return "resold"
-    if "process" in low or "complet" in low:
-        return "completed"
-    return "new"
+    if "resol" in resale_low or "resale" in resale_low:
+        return "resold"
+
+    # 3. LTG specific pending logic (Processed/Submitted/Complete → Pending while visible)
+    # Note: We return 'pending' here. The 'completed' status is managed by disappearance logic.
+    return "pending"
 
 def parse_event_datetime(value):
     if not value:

@@ -57,10 +57,13 @@ def register_routes(app):
             context.state.log(f"Manual check FAILED for {platform_name}: {repr(e)}")
             return jsonify({"error": f"Failed to fetch orders: {str(e)}"}), 500
 
-        from config import ORDER_STATUS_ALERTS_FILE
+        from core.helpers import standardize_status
+        from config import ORDER_STATUS_STATE_FILE, ORDER_STATUS_ALERTS_FILE
         from core.storage import load_json_file, save_json_file
         from services.telegram_service import send_telegram
 
+        status_state = load_json_file(ORDER_STATUS_STATE_FILE, {})
+        status_state_changed = False
         history = load_json_file(ORDER_STATUS_ALERTS_FILE, {})
         changed = False
 
@@ -72,28 +75,52 @@ def register_routes(app):
         }
 
         for row in rows:
-            status_raw = clean_text(row.get("status", "")).lower()
-            resale_raw = clean_text(row.get("resale_status", "")).lower()
-            order_id = row.get("id")
+            raw_status = clean_text(row.get("status", ""))
+            resale_raw = clean_text(row.get("resale_status", ""))
+            order_id = clean_text(row.get("id", ""))
             
-            cat = "submitted"
-            if "cancel" in status_raw:
-                cat = "cancelled"
-            elif "resol" in resale_raw or "resale" in resale_raw or "resold" in status_raw:
-                cat = "resold"
-            elif "process" in status_raw:
-                cat = "processed"
-            elif "complet" in status_raw or "submit" in status_raw:
-                cat = "submitted"
-                
-            row["dashboard_status"] = cat
+            # Map for dashboard cards
+            dash_status = standardize_status(raw_status, source=platform_name, resale_status=resale_raw)
+            
+            # Category for the search results table (user wants to see real status)
+            cat = dash_status
+            if cat == "pending":
+                if "process" in raw_status.lower():
+                    cat = "processed"
+                else:
+                    cat = "submitted"
+
+            row["dashboard_status"] = dash_status
             grouped[cat].append(row)
             
-            # Alert logic for manual check (Cancelled or Resold only)
+            # Update persistent state
+            key = f"{platform_name}::{order_id}"
+            old_data = status_state.get(key, {})
+            
+            # If it's visible, it's 'pending' unless cancelled/resold.
+            new_status = dash_status
+            
+            if not old_data or old_data.get("order_status") != new_status:
+                status_state[key] = {
+                    "order_number": order_id,
+                    "event_name":   row.get("event", event_name),
+                    "event_date":   row.get("event_date", "-"),
+                    "customer":     row.get("customer", "-"),
+                    "sale_date":    row.get("sale_date", "-"),
+                    "order_status": new_status,
+                    "source":       platform_name,
+                    "last_seen":    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                status_state_changed = True
+                context.state.log(f"Manual search: updating tracking for {key} → {new_status}")
+            else:
+                status_state[key]["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Alert logic
             alert_type = None
-            if cat == "cancelled":
+            if dash_status == "cancelled":
                 alert_type = "cancelled"
-            elif cat == "resold":
+            elif dash_status == "resold":
                 alert_type = "resold"
 
             if alert_type:
@@ -105,29 +132,26 @@ def register_routes(app):
                             f"Platform: {platform_name}\n"
                             f"Order: {order_id}\n"
                             f"Event: {event_name}\n"
-                            f"Status: {row.get('status', 'Cancelled')}"
+                            f"Status: {raw_status}"
                         )
-                    else: # resold
+                    else:
                         msg = (
                             f"🔁 ORDER RESOLD / RESALE\n"
                             f"Platform: {platform_name}\n"
                             f"Order: {order_id}\n"
                             f"Event: {event_name}\n"
-                            f"Status: {row.get('status', 'Resold')}"
+                            f"Status: {raw_status}"
                         )
                     
                     send_telegram(msg)
                     history[hist_key] = True
                     changed = True
-                    context.state.log(f"Manual check: alert SENT for {platform_name} order {order_id}")
 
+        if status_state_changed:
+            save_json_file(ORDER_STATUS_STATE_FILE, status_state)
         if changed:
             save_json_file(ORDER_STATUS_ALERTS_FILE, history)
 
-        # Update global state so these orders appear in dashboard if needed
-        # Actually, manual check shouldn't necessarily pollute the active monitoring rows,
-        # but the user said "If alert is sent, the order must appear in the dashboard".
-        # We can add them to the state.
         for cat_list in grouped.values():
             for r in cat_list:
                 context.state.upsert_sent_order_row(r)
@@ -205,6 +229,7 @@ def register_routes(app):
         except:
             order_states = {}
 
+        from core.helpers import standardize_status
         orders = []
         for r in context.state.current_order_rows:
             order_copy = dict(r)
@@ -219,15 +244,16 @@ def register_routes(app):
                 else:
                     order_copy["ticketsshop_status"] = ts_info if ts_info else "unchecked"
                     
-            std_status = "new"
+            # Use persistent status_state if available, else standardize current row
+            std_status = "pending"
             if key in order_states:
-                std_status = order_states[key].get("order_status", "new")
+                std_status = order_states[key].get("order_status", "pending")
             else:
-                from core.helpers import standardize_status
-                std_status = standardize_status(order_copy.get("status", ""))
-                
-            if std_status == "new":
-                std_status = "pending"
+                std_status = standardize_status(
+                    order_copy.get("status", ""),
+                    source=source,
+                    resale_status=order_copy.get("resale_status")
+                )
                 
             order_copy["dashboard_status"] = std_status
             orders.append(order_copy)
@@ -412,33 +438,19 @@ def register_routes(app):
             from core.helpers import is_event_expired
 
             all_rows = context.state.current_order_rows
-            
-            # Filter LTG orders and ignore those whose event_date is in the past
-            ltg_rows = [
-                r for r in all_rows 
-                if r.get("source") == "LiveTicketGroup" and not is_event_expired(r.get("event_date", ""))
-            ]
-            
-            # We want to check LTG orders that are either unchecked or previously marked as missing.
-            to_check = []
-            for r in ltg_rows:
-                order_id = str(r.get("id"))
-                event_name = str(r.get("event"))
-                cache_key = f"{order_id}_{event_name}"
-                status_val = results_cache.get(cache_key)
-                if isinstance(status_val, dict):
-                    status = status_val.get("status")
-                else:
-                    status = status_val
 
-                if status != "listed":
-                    to_check.append(r)
-            
-            # Limit to 10 to avoid huge timeouts on frontend
-            to_check = to_check[:10]
+            # Only check active LTG orders
+            ltg_rows = [
+                r for r in all_rows
+                if r.get("source") == "LiveTicketGroup"
+                and not is_event_expired(r.get("event_date", ""))
+            ]
+
+            # Check all orders (not just missing ones) so we can detect listed→missing transitions
+            to_check = ltg_rows[:10]
 
             if not to_check:
-                context.state.log("Ticketsshop check complete. All pending LiveTicketGroup orders are listed.")
+                context.state.log("Ticketsshop check: no active LTG orders to check.")
                 send_telegram(
                     "✅ TICKETSSHOP CHECK COMPLETE\n"
                     "All pending orders are listed.\n"
@@ -449,55 +461,72 @@ def register_routes(app):
             check_results = check_ticketsshop_bulk(to_check)
             listed_orders = check_results.get("listed", [])
             missing_orders = check_results.get("missing", [])
-            
-            listed_order_ids = []
-            missing_order_ids = []
 
-            for m_order in listed_orders:
-                order_id = str(m_order.get("id"))
-                event_name = str(m_order.get("event"))
-                cache_key = f"{order_id}_{event_name}"
-                status_val = results_cache.get(cache_key)
-                if isinstance(status_val, dict):
-                    old_status = status_val.get("status")
-                else:
-                    old_status = status_val
+            for order in listed_orders:
+                order_id = str(order.get("id"))
+                event_name = str(order.get("event"))
+                # Cache key = order_id only (unique per order)
+                cache_key = order_id
+                old_entry = results_cache.get(cache_key, {})
+                old_status = old_entry.get("status") if isinstance(old_entry, dict) else old_entry
 
+                # Alert only if status changed from non-listed to listed
                 if old_status != "listed":
-                    listed_order_ids.append(order_id)
                     send_telegram(
                         f"✅ ORDER LISTED IN TICKETSHOP\n\n"
                         f"Live Order: {order_id}\n"
                         f"Event: {event_name}"
                     )
-                results_cache[cache_key] = {"status": "listed", "date": datetime.now().strftime("%Y-%m-%d")}
+                    context.state.log(f"Ticketsshop: listed alert sent for order {order_id}")
 
-            for m_order in missing_orders:
-                order_id = str(m_order.get("id"))
-                event_name = str(m_order.get("event"))
-                cache_key = f"{order_id}_{event_name}"
-                status_val = results_cache.get(cache_key)
-                if isinstance(status_val, dict):
-                    old_status = status_val.get("status")
-                else:
-                    old_status = status_val
+                results_cache[cache_key] = {
+                    "status": "listed",
+                    "order_id": order_id,
+                    "event": event_name,
+                    "date": datetime.now().strftime("%Y-%m-%d")
+                }
 
-                if old_status != "missing":
-                    missing_order_ids.append(order_id)
+            for order in missing_orders:
+                order_id = str(order.get("id"))
+                event_name = str(order.get("event"))
+                cache_key = order_id
+                old_entry = results_cache.get(cache_key, {})
+                old_status = old_entry.get("status") if isinstance(old_entry, dict) else old_entry
+
+                # ALWAYS alert if:
+                #   a) Never seen before (no cache entry)
+                #   b) Previously listed, now missing  ← status change exception
+                #   c) Previously missing (re-alert in case user missed it)
+                should_alert = True
+                if old_status == "missing":
+                    # Already alerted as missing before — only re-alert if previously listed
+                    should_alert = False  # suppress exact-same re-alert
+
+                # Exception: was listed, now missing → always alert
+                if old_status == "listed":
+                    should_alert = True
+
+                if should_alert:
                     send_telegram(
                         f"⚠️ ORDER NOT LISTED IN TICKETSHOP\n\n"
                         f"Live Order: {order_id}\n"
                         f"Event: {event_name}\n\n"
                         f"Action: Please check/list this order in Ticketshop."
                     )
-                results_cache[cache_key] = {"status": "missing", "date": datetime.now().strftime("%Y-%m-%d")}
-            
-            save_json_file(TICKETSSHOP_RESULTS_FILE, results_cache)
+                    context.state.log(f"Ticketsshop: missing alert sent for order {order_id} (was: {old_status})")
 
-            context.state.log(f"Ticketsshop check finished. {len(listed_orders)} listed, {len(missing_orders)} missing.")
+                results_cache[cache_key] = {
+                    "status": "missing",
+                    "order_id": order_id,
+                    "event": event_name,
+                    "date": datetime.now().strftime("%Y-%m-%d")
+                }
+
+            save_json_file(TICKETSSHOP_RESULTS_FILE, results_cache)
+            context.state.log(f"Ticketsshop check done. Listed: {len(listed_orders)}, Missing: {len(missing_orders)}")
 
             return jsonify({
-                "ok": True, 
+                "ok": True,
                 "checked": len(to_check),
                 "listed": [str(o.get("id")) for o in listed_orders],
                 "missing": [str(o.get("id")) for o in missing_orders]
@@ -528,13 +557,55 @@ def register_routes(app):
     def api_toggle_setting():
         data = request.get_json(force=True, silent=True) or {}
         name = data.get("name", "")
-        allowed = {"sleep_window_enabled", "monitor_liveticketgroup", "monitor_footballticketnet"}
+        allowed = {
+            "sleep_window_enabled",
+            "monitor_liveticketgroup",
+            "monitor_ticketshop",
+            "monitor_footballticketnet",
+            "monitor_fanpass",
+            "monitor_tixstock",
+        }
         if name not in allowed:
             return jsonify({"error": "Invalid setting name"}), 400
         context.state.settings[name] = not bool(context.state.settings.get(name))
         context.state.save_settings()
         context.state.log(f"Toggled {name} -> {context.state.settings[name]}")
         return jsonify({"ok": True})
+
+
+    @app.get("/api/platform-states")
+    @login_required
+    def api_get_platform_states():
+        keys = [
+            "monitor_liveticketgroup",
+            "monitor_ticketshop",
+            "monitor_footballticketnet",
+            "monitor_fanpass",
+            "monitor_tixstock",
+        ]
+        return jsonify({k: context.state.settings.get(k, False) for k in keys})
+
+
+    @app.post("/api/platform-states")
+    @login_required
+    def api_set_platform_states():
+        data = request.get_json(force=True, silent=True) or {}
+        allowed = {
+            "monitor_liveticketgroup",
+            "monitor_ticketshop",
+            "monitor_footballticketnet",
+            "monitor_fanpass",
+            "monitor_tixstock",
+        }
+        updated = []
+        for key, val in data.items():
+            if key in allowed:
+                context.state.settings[key] = bool(val)
+                updated.append(key)
+        if updated:
+            context.state.save_settings()
+            context.state.log(f"Platform states updated: {updated}")
+        return jsonify({"ok": True, "updated": updated})
 
 
     @app.post("/api/users/add")

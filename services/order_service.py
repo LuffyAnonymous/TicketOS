@@ -64,16 +64,18 @@ def check_all_platforms_once(seen_orders):
     all_rows = []
     latest_candidates = []
 
-    mon_ltg = context.state.settings.get("monitor_liveticketgroup", True)
-    mon_ftn = context.state.settings.get("monitor_footballticketnet", True)
+    mon = {
+        "LiveTicketGroup":   context.state.settings.get("monitor_liveticketgroup",  True),
+        "FootballTicketNet": context.state.settings.get("monitor_footballticketnet", True),
+        "Fanpass":           context.state.settings.get("monitor_fanpass",           False),
+        "Tixstock":          context.state.settings.get("monitor_tixstock",          False),
+    }
 
     for adapter in context.platform_adapters:
         try:
-            if adapter.source_name == "LiveTicketGroup" and not mon_ltg:
-                context.state.log("LiveTicketGroup: monitoring disabled in settings, skipping")
-                continue
-            if adapter.source_name == "FootballTicketNet" and not mon_ftn:
-                context.state.log("FootballTicketNet: monitoring disabled in settings, skipping")
+            enabled = mon.get(adapter.source_name, True)
+            if not enabled:
+                context.state.log(f"{adapter.source_name}: monitoring disabled, skipping")
                 continue
 
             rows, latest_order = adapter.fetch_orders()
@@ -83,6 +85,7 @@ def check_all_platforms_once(seen_orders):
             context.state.log(f"{adapter.source_name}: parsed {len(rows)} active rows")
         except Exception as e:
             context.state.log(f"{adapter.source_name}: error -> {repr(e)}")
+
 
     all_rows.sort(
         key=lambda r: parse_sale_datetime(r.get("sale_date", "")) or datetime.min,
@@ -134,30 +137,71 @@ def check_all_platforms_once(seen_orders):
                 context.state.save_seen_orders(seen_orders)
                 context.state.log(f"LiveTicketGroup: alert SENT for order -> {order_id}")
 
-        # 2. Status Tracking for Dashboard
+    # ─── STEP 2: Status Tracking ─────────────────────────────
+    # Build set of currently visible order keys
+    current_keys = set()
+    for row in all_rows:
+        source = clean_text(row.get("source", ""))
+        order_id = clean_text(row.get("id", ""))
+        if source and order_id:
+            current_keys.add(f"{source}::{order_id}")
+
+    status_state_changed = False
+
+    for row in all_rows:
+        source = clean_text(row.get("source", ""))
+        order_id = clean_text(row.get("id", ""))
+        if not source or not order_id:
+            continue
+
+        key = f"{source}::{order_id}"
         raw_status = row.get("status", "")
-        std_status = standardize_status(raw_status)
-        
+        resale_raw = row.get("resale_status", "")
+
+        # Determine dashboard status using helper
+        dash_status = standardize_status(raw_status, source=source, resale_status=resale_raw)
+
         old_data = status_state.get(key, {})
         if not old_data:
             status_state[key] = {
                 "order_number": order_id,
-                "event_name": row.get("event", "-"),
-                "customer": row.get("customer", "-"),
-                "sale_date": row.get("sale_date", "-"),
-                "order_status": std_status,
-                "source": source
+                "event_name":   row.get("event", "-"),
+                "event_date":   row.get("event_date", "-"),
+                "customer":     row.get("customer", "-"),
+                "sale_date":    row.get("sale_date", "-"),
+                "order_status": dash_status,
+                "source":       source,
+                "last_seen":    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
             status_state_changed = True
-            context.state.log(f"{source}: saved to dashboard -> {order_id}")
+            context.state.log(f"{source}: tracked new order → {order_id} [{dash_status}]")
         else:
-            if std_status != old_data.get("order_status"):
-                status_state[key]["order_status"] = std_status
-                status_state_changed = True
+            # Update last_seen timestamp
+            status_state[key]["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Only update if not already marked completed (disappeared orders keep that state)
+            if old_data.get("order_status") not in ("completed",):
+                if dash_status != old_data.get("order_status"):
+                    status_state[key]["order_status"] = dash_status
+                    status_state_changed = True
+
+    # ─── STEP 3: Detect Disappeared LTG Orders → Completed ───
+    # Any LTG order tracked in status_state that is no longer visible = completed
+    for key, data in status_state.items():
+        if not key.startswith("LiveTicketGroup::"):
+            continue
+        if key in current_keys:
+            continue  # still visible, keep as-is
+        if data.get("order_status") in ("completed", "cancelled", "resold"):
+            continue  # already terminal, skip
+
+        # Order was tracked but has now disappeared → mark completed
+        status_state[key]["order_status"] = "completed"
+        status_state_changed = True
+        context.state.log(f"LiveTicketGroup: order {data.get('order_number',key)} disappeared → marked COMPLETED")
 
     if status_state_changed:
         save_json_file(ORDER_STATUS_STATE_FILE, status_state)
-    
+
     if ftn_changed:
         save_json_file(SENT_FOOTBALLTICKETNET_ORDERS_FILE, list(ftn_sent))
 

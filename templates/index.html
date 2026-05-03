@@ -1,266 +1,347 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>{{ title }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style_v27.css') }}">
+  <meta name="description" content="Order monitoring dashboard for ticket platforms">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=103">
 </head>
 <body>
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-icon">⚡</div>
+
+<!-- ═══ SIDEBAR ═══════════════════════════════════════════ -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-icon">🎫</div>
       <div>
-        <div class="brand-title">OrderTicketMonitor</div>
-        <div class="brand-sub">Multi Platform Monitor</div>
+        <div class="sidebar-logo-title">OrderTicket</div>
+        <div class="sidebar-logo-sub">Monitor</div>
+      </div>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="sidebar-section-label">Main</div>
+    <a class="nav-item active" data-page="dashboardPage" onclick="switchPage('dashboardPage',this)">
+      <span class="nav-icon">📊</span> Dashboard
+    </a>
+    <a class="nav-item" data-page="ordersPage" onclick="switchPage('ordersPage',this)">
+      <span class="nav-icon">🎟️</span> Orders
+    </a>
+    <a class="nav-item" data-page="sourcesPage" onclick="switchPage('sourcesPage',this)">
+      <span class="nav-icon">🔌</span> Sources
+    </a>
+
+    <div class="sidebar-section-label" style="margin-top:8px;">System</div>
+    <a class="nav-item" data-page="settingsPage" onclick="switchPage('settingsPage',this)">
+      <span class="nav-icon">⚙️</span> Settings
+    </a>
+  </nav>
+
+  <div class="sidebar-bottom">
+    <div class="sidebar-user">
+      <div class="sidebar-avatar" id="avatarInitial">A</div>
+      <div>
+        <div class="sidebar-user-name" id="sidebarUsername">Admin</div>
+        <div class="sidebar-user-role" id="sidebarRole">admin</div>
+      </div>
+    </div>
+    <a href="/logout" class="btn-logout">Sign Out</a>
+  </div>
+</aside>
+
+<!-- ═══ MAIN ═══════════════════════════════════════════════ -->
+<main class="main">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div>
+      <div class="topbar-title" id="topbarTitle">Dashboard</div>
+      <div class="topbar-sub" id="topbarSub">Live order monitoring across all platforms</div>
+    </div>
+    <div class="topbar-right">
+      <div id="botStatusPill" class="status-pill stopped">
+        <span class="status-pill-dot"></span>
+        <span id="botStatusText">Stopped</span>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="triggerCheckNow()" id="btnCheckNow">↻ Check Now</button>
+      <label class="toggle" title="Start/Stop bot">
+        <input type="checkbox" id="masterToggle" onchange="toggleMasterMonitoring()">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- ─── DASHBOARD ──────────────────────────────────────── -->
+  <div class="content-area page active" id="dashboardPage">
+
+    <!-- Stat Cards — click to filter Orders page -->
+    <div class="stats-row">
+      <div class="stat-card gray" style="cursor:pointer" onclick="filterOrdersByStatus(null)" title="All tracked orders">
+        <div class="stat-label">Total Orders</div>
+        <div class="stat-value" id="statTotal">0</div>
+      </div>
+      <div class="stat-card blue" style="cursor:pointer" onclick="filterOrdersByStatus('pending')" title="Show pending orders">
+        <div class="stat-label">Pending</div>
+        <div class="stat-value" id="statPending">0</div>
+      </div>
+      <div class="stat-card red" style="cursor:pointer" onclick="filterOrdersByStatus('cancelled')" title="Show cancelled orders">
+        <div class="stat-label">Cancelled</div>
+        <div class="stat-value" id="statCancelled">0</div>
+      </div>
+      <div class="stat-card orange" style="cursor:pointer" onclick="filterOrdersByStatus('resold')" title="Show resold orders">
+        <div class="stat-label">Resold</div>
+        <div class="stat-value" id="statResold">0</div>
+      </div>
+      <div class="stat-card green" style="cursor:pointer" onclick="filterOrdersByStatus('completed')" title="Show completed orders">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value" id="statCompleted">0</div>
       </div>
     </div>
 
-    <nav class="side-nav">
-      <a href="#" class="nav-link active" data-tab="dashboardTab">Dashboard</a>
-      <a href="#" class="nav-link" data-tab="ordersTab">Orders</a>
-      <a href="#" class="nav-link" data-tab="customersTab">Customers</a>
-      <a href="#" class="nav-link" data-tab="activityTab">Activity</a>
-      <a href="#" class="nav-link" data-tab="settingsTab">Settings</a>
-    </nav>
-
-    <div class="sidebar-card">
-      <div class="sidebar-card-title">Quick Status</div>
-      <div class="mini-status">
-        <span>Bot</span>
-        <strong id="heroStatus">Stopped</strong>
-      </div>
-      <div class="mini-status">
-        <span>Session</span>
-        <strong id="sessionStatus">-</strong>
-      </div>
-      <div class="mini-status">
-        <span>User</span>
-        <strong id="currentUserName">{{ current_user }}</strong>
-      </div>
-    </div>
-
-    <a class="logout-link" href="/logout">Log out</a>
-  </aside>
-
-  <main class="main">
-    <section id="dashboardTab" class="tab-page active">
-      <header class="topbar">
+    <!-- Active Events -->
+    <div class="card">
+      <div class="card-header">
         <div>
-          <h1 id="greetingText">Hello 👋</h1>
-          <p>Clean control view for orders grouped by event and source</p>
+          <div class="card-title">Active Events</div>
+          <div class="card-sub">Click any row to see full order breakdown</div>
         </div>
-        <div class="top-actions top-actions-wrapper">
-          <div class="monitoring-control">
-            <span id="monitoringStatusText">Monitoring OFF</span>
-            <label class="switch">
-              <input type="checkbox" id="monitoringToggle" onchange="toggleMonitoring()">
-              <span class="slider round"></span>
-            </label>
-          </div>
-          <button class="btn btn-ticketsshop" onclick="checkTicketsshopOrders()" id="btnCheckTicketsshop">
-            CHECK TICKETSSHOP LISTINGS
-          </button>
+        <div class="search-bar">
+          <span>🔍</span>
+          <input type="text" id="eventSearch" placeholder="Search events…" oninput="filterEvents()">
         </div>
-      </header>
+      </div>
+      <div class="card-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Event Name</th>
+                <th>Source</th>
+                <th>Orders</th>
+                <th>Tickets</th>
+                <th>Total Value</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="activeEventsBody">
+              <tr><td colspan="6"><div class="empty-state"><div class="empty-icon">📭</div><div>No events yet</div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
 
-      <section class="stats-grid" style="grid-template-columns: repeat(5, 1fr);">
-        <div class="stat-card blue" id="cardTotal" title="Total Orders">
-          <div class="stat-label">Total Orders</div>
-          <div class="stat-value" id="totalOrdersCount">0</div>
+    <!-- Order Status Search — moved to Dashboard -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Order Status Search</div>
+          <div class="card-sub">Check and fetch order statuses for a specific event across platforms</div>
         </div>
-        <div class="stat-card green" id="cardProcessed">
-          <div class="stat-label">Completed Orders</div>
-          <div class="stat-value" id="processedOrdersCount">0</div>
-        </div>
-        <div class="stat-card orange" id="cardResold">
-          <div class="stat-label">Resold Orders</div>
-          <div class="stat-value" id="resoldOrdersCount">0</div>
-        </div>
-        <div class="stat-card red" id="cardCancelled">
-          <div class="stat-label">Cancelled Orders</div>
-          <div class="stat-value" id="cancelledOrdersCount">0</div>
-        </div>
-        <div class="stat-card purple" id="cardPending">
-          <div class="stat-label">Pending Orders</div>
-          <div class="stat-value" id="pendingOrdersCount">0</div>
-        </div>
-      </section>
-
-      <section class="panel" style="margin-top: 20px;">
-        <div class="panel-head">
-          <div>
-            <h3>Multi-Platform Order Status Search</h3>
-            <p>Check historical order statuses across multiple platforms</p>
-          </div>
-        </div>
-        <div style="padding: 16px; display: flex; flex-direction: row; align-items: flex-end; gap: 16px; flex-wrap: wrap;">
-          <div style="flex: 0 0 200px;">
-            <label style="display: block; font-size: 11px; font-weight: bold; color: var(--muted); margin-bottom: 6px; text-transform: uppercase;">Platform</label>
-            <select id="statusPlatformSelect" style="width: 100%; height: 40px; padding: 0 12px; font-size: 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-dark); color: #fff; cursor: pointer;">
+      </div>
+      <div class="card-body" style="padding:16px 20px;">
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+          <div class="form-group" style="margin:0;flex:0 0 200px;">
+            <label class="form-label">Platform</label>
+            <select id="statusPlatformSelect" class="form-input form-select">
               <option value="LiveTicketGroup">LiveTicketGroup</option>
-              <option value="Fanpass">Fanpass</option>
               <option value="FootballTicketNet">FootballTicketNet</option>
+              <option value="Fanpass">Fanpass</option>
               <option value="Tixstock">Tixstock</option>
             </select>
           </div>
-          <div style="flex: 1; min-width: 250px;">
-            <label style="display: block; font-size: 11px; font-weight: bold; color: var(--muted); margin-bottom: 6px; text-transform: uppercase;">Event Name</label>
-            <input type="text" id="statusEventInput" placeholder="e.g. Manchester United vs Brentford" style="width: 100%; height: 40px; padding: 0 16px; font-size: 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-dark); color: #fff;">
+          <div class="form-group" style="margin:0;flex:1;min-width:220px;">
+            <label class="form-label">Event Name</label>
+            <input type="text" id="statusEventInput" class="form-input" placeholder="e.g. Arsenal vs Chelsea">
           </div>
-          <button class="btn btn-secondary" onclick="checkOrderStatus()" id="btnCheckOrderStatus" style="height: 40px; width: auto; flex: 0 0 auto; font-size: 13px; font-weight: bold; white-space: nowrap; padding: 0 24px;">CHECK ORDER STATUS</button>
+          <button class="btn btn-primary" onclick="checkOrderStatus()" id="btnCheckStatus">Check Status</button>
         </div>
-      </section>
-
-      <section class="dashboard-two-col" style="grid-template-columns: 1fr;">
-        <div class="panel">
-          <div class="panel-head"><div><h3>Active Events Overview</h3><p>Real-time event order breakdown</p></div></div>
-          <div class="table-wrap compact-table-wrap" style="max-height: 400px; min-height: 400px;">
+        <div id="statusResults" class="hidden" style="margin-top:16px;">
+          <div id="statusResultsFilters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>
+          <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Event Name</th>
-                  <th>Source</th>
-                  <th>Total Orders</th>
-                  <th>Total Tickets</th>
-                  <th>Total Value (£)</th>
+                  <th>Order ID</th>
+                  <th>Customer</th>
+                  <th>Sale Date</th>
                   <th>Status</th>
                 </tr>
               </thead>
-              <tbody id="activeEventsBody">
-                <tr><td colspan="6" class="muted">Loading...</td></tr>
-              </tbody>
+              <tbody id="statusResultsBody"></tbody>
             </table>
           </div>
         </div>
-      </section>
+      </div>
+    </div>
 
-      <section class="panel" id="manualLtgResultSection" style="display: none; margin-top: 20px;">
-        <div class="panel-head" style="display: flex; flex-direction: column; gap: 12px; align-items: flex-start;">
-          <div>
-            <h3>Manual Status Check Results</h3>
-            <p id="manualLtgResultEvent">Event</p>
-          </div>
-          <div id="manualLtgSmallStats" style="display: flex; flex-direction: row; gap: 6px; align-items: center; flex-wrap: wrap;"></div>
-        </div>
-        <div class="table-wrap compact-table-wrap" style="border: none;">
+  </div>
+
+  <!-- ─── ORDERS ─────────────────────────────────────────── -->
+  <div class="content-area page" id="ordersPage">
+    <div class="section-header">
+      <div>
+        <div class="section-title" id="ordersPageTitle">Orders by Event</div>
+        <div class="section-sub" id="ordersPageSub">Expand an event to view all orders</div>
+      </div>
+      <div id="ordersFilterBadge" style="display:none;align-items:center;gap:8px;">
+        <span style="font-size:13px;color:var(--muted)">Filtered by:</span>
+        <span id="ordersFilterLabel" class="badge badge-blue" style="text-transform:capitalize"></span>
+        <button class="btn btn-secondary btn-sm" onclick="clearOrdersFilter()">✕ Clear</button>
+      </div>
+    </div>
+    <div id="ordersAccordion">
+      <div class="empty-state">
+        <div class="empty-icon">🗂️</div>
+        <div class="empty-title">No Orders Yet</div>
+        <div class="empty-sub">Start monitoring to see orders appear here</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SOURCES ────────────────────────────────────────── -->
+  <div class="content-area page" id="sourcesPage">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Platform Sources</div>
+        <div class="section-sub">Enable or disable each platform independently</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Monitoring Controls</div>
+        <div class="card-sub">Changes take effect on the next check cycle</div>
+      </div>
+      <div class="card-body">
+        <div class="table-wrap">
           <table>
-            <thead><tr><th>ID</th><th>Customer</th><th>Sale Date</th><th>Status</th></tr></thead>
-            <tbody id="manualLtgResultBody"></tbody>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Description</th>
+                <th>Type</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="sourcesTableBody"></tbody>
           </table>
         </div>
-      </section>
-    </section>
+      </div>
+    </div>
 
-    <section id="ordersTab" class="tab-page">
-      <header class="topbar compact">
+    <!-- Ticketshop Manual Verification -->
+    <div class="card">
+      <div class="card-header">
         <div>
-          <h1>Orders by Event</h1>
-          <p>Expand an event to view full order details. No hidden data.</p>
+          <div class="card-title">Ticketshop Manual Verification</div>
+          <div class="card-sub">Verify that all LTG orders are listed on Ticketshop</div>
         </div>
-      </header>
+        <button class="btn btn-primary btn-sm" onclick="checkTicketsshopOrders()" id="btnTicketsshop">
+          Check Listings
+        </button>
+      </div>
+      <div class="card-body" style="padding:16px 20px;">
+        <p style="font-size:13px;color:var(--muted);">
+          Scans Ticketshop for all active LiveTicketGroup orders.
+          Sends a Telegram alert for any missing or delisted orders.
+        </p>
+      </div>
+    </div>
+  </div>
 
-      <div class="panel">
-        <div id="ordersEventAccordion" class="event-accordion">
-          <!-- Populated by JS -->
+  <!-- ─── SETTINGS ───────────────────────────────────────── -->
+  <div class="content-area page" id="settingsPage">
+    <div class="two-col">
+      <!-- Bot Settings -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Bot Settings</div></div>
+        <div class="card-body" style="padding:20px;">
+          <div class="form-group">
+            <label class="form-label" for="settingsInterval">Check Interval (minutes)</label>
+            <input type="number" id="settingsInterval" class="form-input" min="1" value="30" style="max-width:160px;">
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--border);">
+            <div>
+              <div style="font-size:13.5px;font-weight:600;">Sleep Window (12AM–5AM)</div>
+              <div style="font-size:12px;color:var(--muted);">Pause monitoring overnight</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="sleepToggle" onchange="toggleSetting('sleep_window_enabled')">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <button class="btn btn-primary" onclick="saveIntervalSettings()" style="margin-top:14px;width:100%;">
+            Save Settings
+          </button>
+          <button class="btn btn-secondary" style="margin-top:8px;width:100%;"
+            onclick="api('/api/test-order-telegram',{method:'POST'}).then(()=>showToast('Test alert sent ✅')).catch(e=>showToast('Failed: '+e.message))">
+            Send Test Telegram Alert
+          </button>
         </div>
       </div>
-    </section>
 
-    <section id="customersTab" class="tab-page">
-      <header class="topbar compact"><div><h1>Customers</h1><p>Most useful customer summary only</p></div></header>
-      <div class="panel"><div class="panel-head"><div><h3>Customer Analytics</h3></div></div>
-        <div class="table-wrap short-table"><table><thead><tr><th>Customer</th><th>Total Orders</th><th>Distinct Events</th><th>Platforms</th><th>Next Event Date</th></tr></thead><tbody id="customersBody"></tbody></table></div>
-      </div>
-    </section>
-
-    <section id="activityTab" class="tab-page">
-      <header class="topbar compact"><div><h1>Activity</h1><p>Distinct upcoming events, sorted by event date</p></div></header>
-      <div class="panel"><div class="panel-head"><div><h3>Event Activity</h3></div></div>
-        <div class="table-wrap short-table"><table><thead><tr><th>Source</th><th>Event</th><th>Event Date</th></tr></thead><tbody id="activityBody"></tbody></table></div>
-      </div>
-    </section>
-
-    <section id="settingsTab" class="tab-page">
-      <header class="topbar compact"><div><h1>Settings</h1><p>Only controls and access, no clutter</p></div></header>
-      <div class="settings-grid">
-        <div class="panel"><div class="panel-head"><div><h3>Appearance</h3></div></div>
-          <div class="btn-grid"><button class="btn btn-secondary" onclick="setTheme('light')">Light Mode</button><button class="btn btn-secondary" onclick="setTheme('dark')">Dark Mode</button></div>
+      <!-- Add Member -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Add Member</div></div>
+        <div class="card-body" style="padding:20px;">
+          <div class="form-group">
+            <label class="form-label">Username</label>
+            <input id="newUsername" class="form-input" type="text" placeholder="Enter username">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input id="newPassword" class="form-input" type="password" placeholder="Enter password">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Role</label>
+            <select id="newRole" class="form-input form-select">
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" onclick="addMember()" style="width:100%;">Add Member</button>
         </div>
-        <div class="panel" style="text-align: center;">
-          <div class="panel-head" style="justify-content: center; margin-bottom: 16px;"><div><h3 style="margin: 0;">Control Center</h3></div></div>
-          
-          <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
-            <div style="display: grid; grid-template-columns: 80px 80px; gap: 10px;">
-              <button class="btn btn-secondary" style="width: 80px; height: 80px; min-height: 80px; border-radius: 16px; padding: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px;" onclick="saveSettingsFromSettings()">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                <span style="font-size: 12px;">Save</span>
-              </button>
-              <button class="btn btn-secondary" style="width: 80px; height: 80px; min-height: 80px; border-radius: 16px; padding: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px;" onclick="checkNow()">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                <span style="font-size: 12px;">Check</span>
-              </button>
-            </div>
+      </div>
 
-            <div style="width: 170px;">
-              <label class="control-label" for="intervalMinutesSettings" style="font-size: 11px; margin-bottom: 6px; display: block; text-align: left; padding-left: 4px;">Check Interval (min)</label>
-              <input id="intervalMinutesSettings" class="interval-input" type="number" min="1" value="30" style="width: 100%; text-align: center; padding: 10px; font-size: 14px; min-height: 40px; margin-bottom: 0; border-radius: 12px;">
-            </div>
-            
-            <button id="sleepToggleSettings" class="btn btn-secondary" style="width: 170px; min-height: 40px; border-radius: 12px; margin-top: -4px;" onclick="toggleSetting('sleep_window_enabled')">Sleep 12AM</button>
-            
-            <div style="width: 170px; display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-                <label class="switch-row" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                    <span style="font-size: 12px; color: var(--muted);">LiveTicketGroup</span>
-                    <label class="switch" style="transform: scale(0.8);">
-                        <input type="checkbox" id="monitorLtgToggle" onchange="toggleSetting('monitor_liveticketgroup')">
-                        <span class="slider round"></span>
-                    </label>
-                </label>
-                <label class="switch-row" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                    <span style="font-size: 12px; color: var(--muted);">FootballTicketNet</span>
-                    <label class="switch" style="transform: scale(0.8);">
-                        <input type="checkbox" id="monitorFtnToggle" onchange="toggleSetting('monitor_footballticketnet')">
-                        <span class="slider round"></span>
-                    </label>
-                </label>
-            </div>
-
-            <button class="btn btn-secondary" style="width: 170px; min-height: 40px; border-radius: 12px; margin-top: 8px; background: #2a3a5a; border-color: #3f5175;" onclick="checkOrderStatusSpecific('FootballTicketNet')">Test FTN Login</button>
-            
+      <!-- Members List -->
+      <div class="card" style="grid-column:1/-1;">
+        <div class="card-header"><div class="card-title">Members</div></div>
+        <div class="card-body">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody id="membersBody"></tbody>
+            </table>
           </div>
         </div>
-        <div class="panel"><div class="panel-head"><div><h3>Add Member</h3></div></div>
-          <div class="member-form"><label class="control-label" for="memberUsername">Username</label><input id="memberUsername" class="interval-input" type="text" placeholder="Enter username"><label class="control-label" for="memberPassword">Password</label><input id="memberPassword" class="interval-input" type="password" placeholder="Enter password"><label class="control-label" for="memberRole">Role</label><select id="memberRole" class="interval-input"><option value="member">Member</option><option value="admin">Admin</option></select><button class="btn btn-secondary full-btn" onclick="addMember()">Add Member</button></div>
-        </div>
-        <div class="panel"><div class="panel-head"><div><h3>Member Manager</h3></div></div>
-          <div class="table-wrap short-table"><table><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="membersBody"></tbody></table></div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <div id="orderDrawerBackdrop" class="drawer-backdrop hidden" onclick="closeOrderDrawer()"></div>
-
-  <aside id="orderDrawer" class="order-drawer hidden">
-    <div class="order-drawer-header">
-      <div>
-        <div class="drawer-kicker">Order Inspector</div>
-        <h2 id="drawerOrderTitle">Order Details</h2>
-        <p id="drawerOrderSub">Click an order ID to inspect ticket details</p>
-      </div>
-      <button class="drawer-close" onclick="closeOrderDrawer()">✕</button>
-    </div>
-
-    <div id="orderDrawerBody" class="order-drawer-body">
-      <div class="drawer-empty">
-        Select an order to view ticket information.
       </div>
     </div>
-  </aside>
+  </div>
 
-  <div id="toastContainer" class="toast-container"></div>
-  <script src="{{ url_for('static', filename='app_v27.js') }}"></script>
+</main>
+
+<!-- ═══ ORDER DRAWER ══════════════════════════════════════ -->
+<div class="drawer-backdrop hidden" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<aside class="order-drawer hidden" id="orderDrawer">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-kicker">Order Inspector</div>
+      <div class="drawer-title" id="drawerTitle">Order Details</div>
+      <div class="drawer-sub" id="drawerSub">—</div>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-body" id="drawerBody">
+    <div class="empty-state"><div class="empty-icon">📄</div><div>Select an order</div></div>
+  </div>
+</aside>
+
+<!-- TOAST -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="{{ url_for('static', filename='app.js') }}?v=103"></script>
 </body>
 </html>
