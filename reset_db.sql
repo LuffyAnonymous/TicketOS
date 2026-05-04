@@ -1,0 +1,9 @@
+-- reset_db.sql
+DROP TABLE IF EXISTS ticketshop_checks CASCADE;
+DROP TABLE IF EXISTS order_status_check_items CASCADE;
+DROP TABLE IF EXISTS order_status_checks CASCADE;
+DROP TABLE IF EXISTS order_alerts CASCADE;
+DROP TABLE IF EXISTS app_events CASCADE;
+DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS events CASCADE;
+DROP TABLE IF EXISTS platforms CASCADE;

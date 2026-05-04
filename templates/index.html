@@ -5,7 +5,7 @@
   <title>{{ title }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Order monitoring dashboard for ticket platforms">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=103">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=104">
 </head>
 <body>
 
@@ -15,8 +15,8 @@
     <div class="sidebar-logo">
       <div class="sidebar-logo-icon">🎫</div>
       <div>
-        <div class="sidebar-logo-title">OrderTicket</div>
-        <div class="sidebar-logo-sub">Monitor</div>
+        <div class="sidebar-logo-title">OrderHub</div>
+        <div class="sidebar-logo-sub">Dashboard</div>
       </div>
     </div>
   </div>
@@ -28,6 +28,9 @@
     </a>
     <a class="nav-item" data-page="ordersPage" onclick="switchPage('ordersPage',this)">
       <span class="nav-icon">🎟️</span> Orders
+    </a>
+    <a class="nav-item" data-page="pastEventsPage" onclick="switchPage('pastEventsPage',this)">
+      <span class="nav-icon">📅</span> Past Events
     </a>
     <a class="nav-item" data-page="sourcesPage" onclick="switchPage('sourcesPage',this)">
       <span class="nav-icon">🔌</span> Sources
@@ -90,8 +93,8 @@
         <div class="stat-label">Cancelled</div>
         <div class="stat-value" id="statCancelled">0</div>
       </div>
-      <div class="stat-card orange" style="cursor:pointer" onclick="filterOrdersByStatus('resold')" title="Show resold orders">
-        <div class="stat-label">Resold</div>
+      <div class="stat-card orange" style="cursor:pointer" onclick="filterOrdersByStatus('resold')" title="Show resold/presold orders">
+        <div class="stat-label">Resold / Presold</div>
         <div class="stat-value" id="statResold">0</div>
       </div>
       <div class="stat-card green" style="cursor:pointer" onclick="filterOrdersByStatus('completed')" title="Show completed orders">
@@ -201,6 +204,23 @@
     </div>
   </div>
 
+  <!-- ─── PAST EVENTS ───────────────────────────────────── -->
+  <div class="content-area page" id="pastEventsPage">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Past Events</div>
+        <div class="section-sub">Historical data for completed events</div>
+      </div>
+    </div>
+    <div id="pastEventsContainer">
+      <div class="empty-state">
+        <div class="empty-icon">📅</div>
+        <div class="empty-title">No Past Events</div>
+        <div class="empty-sub">Old events will automatically move here once completed</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ─── SOURCES ────────────────────────────────────────── -->
   <div class="content-area page" id="sourcesPage">
     <div class="section-header">
@@ -280,6 +300,10 @@
             onclick="api('/api/test-order-telegram',{method:'POST'}).then(()=>showToast('Test alert sent ✅')).catch(e=>showToast('Failed: '+e.message))">
             Send Test Telegram Alert
           </button>
+          <button class="btn btn-secondary" style="margin-top:8px;width:100%;background-color:#fee2e2;color:#b91c1c;border-color:#fecaca;"
+            onclick="if(confirm('Are you sure you want to completely reset the system? This will delete all orders and history.')) { api('/api/system/reset',{method:'POST'}).then(()=>{ showToast('System Reset Complete ✅'); setTimeout(()=>location.reload(), 1500); }).catch(e=>showToast('Failed: '+e.message)); }">
+            Reset Entire System
+          </button>
         </div>
       </div>
 
@@ -342,6 +366,6 @@
 <!-- TOAST -->
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="{{ url_for('static', filename='app.js') }}?v=103"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=104"></script>
 </body>
 </html>

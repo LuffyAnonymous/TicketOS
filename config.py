@@ -1,5 +1,10 @@
 import os
 from urllib.parse import quote
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://username:password@localhost:5432/order_ticket_db")
 
 # =========================================================
 # PLATFORM CONFIG
@@ -7,43 +12,43 @@ from urllib.parse import quote
 PLATFORM_CONFIGS = {
     "LiveTicketGroup": {
         "enabled": True,
-        "username": "live@ticketsshop.co.uk",
-        "password": "ClusterH105",
+        "username": os.environ.get("LIVE_USERNAME", ""),
+        "password": os.environ.get("LIVE_PASSWORD", ""),
         "login_url": "https://www.liveticketgroup.com/login",
         "next_chunk_url": "https://www.liveticketgroup.com/_next/static/chunks/9fe30054f439dbd7.js",
         "orders_base_url": "https://my.liveticketgroup.com/pages/content/index.aspx",
     },
     "Fanpass": {
         "enabled": False,
-        "username": "",
-        "password": "",
+        "username": os.environ.get("FANPASS_USERNAME", ""),
+        "password": os.environ.get("FANPASS_PASSWORD", ""),
         "login_url": "",
         "orders_url": "",
     },
     "Tixstock": {
         "enabled": False,
-        "username": "",
-        "password": "",
+        "username": os.environ.get("TIXSTOCK_USERNAME", ""),
+        "password": os.environ.get("TIXSTOCK_PASSWORD", ""),
         "login_url": "",
         "orders_url": "",
     },
     "FootballTicketNet": {
         "enabled": True,
-        "username": os.environ.get("FOOTBALLTICKETNET_USERNAME", "tony@footballticketshub.com"),
-        "password": os.environ.get("FOOTBALLTICKETNET_PASSWORD", "ClusterH108"),
+        "username": os.environ.get("FOOTBALLTICKETNET_USERNAME", ""),
+        "password": os.environ.get("FOOTBALLTICKETNET_PASSWORD", ""),
         "login_url": "https://www.footballticketnet.com/",
         "delivery_url": "https://www.footballticketnet.com/?action=delivery_info",
     },
 }
 
-ORDER_BOT_TOKEN = "8649315986:AAE4FwJGpFv4stvdPm6VxtvBEmOITYxlayU"
-ORDER_CHAT_ID = "8365763849"
+ORDER_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+ORDER_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "admin123"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 
-APP_TITLE = "Sales & Order Notification"
-JWT_SECRET = "CHANGE-THIS-TO-A-LONG-RANDOM-SECRET"
+APP_TITLE = "OrderHub"
+JWT_SECRET = os.environ.get("JWT_SECRET", "CHANGE-THIS-TO-A-LONG-RANDOM-SECRET")
 JWT_ALGORITHM = "HS256"
 ACCESS_COOKIE_NAME = "orderticketmonitor_access_token"
 

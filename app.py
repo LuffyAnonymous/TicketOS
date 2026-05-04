@@ -16,6 +16,19 @@ def create_app():
     app.secret_key = JWT_SECRET
     app.config["TEMPLATES_AUTO_RELOAD"] = True
 
+    from database import init_db, test_db_connection
+    try:
+        init_db()
+        if test_db_connection():
+            print("\n===============================")
+            print("PostgreSQL connected")
+            print("===============================\n")
+            context.db_connected = True
+        else:
+            print("Using JSON fallback (DB connection failed)")
+            context.db_connected = False
+    except Exception as e:
+        print(f"Database Initialization Failed (Falling back to JSON): {e}")
     ensure_admin_user()
     context.state = AppState()
     context.platform_adapters = build_platform_adapters()

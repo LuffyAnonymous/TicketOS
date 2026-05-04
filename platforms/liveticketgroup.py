@@ -1,13 +1,13 @@
 import os
 import re
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 import extensions as context
-from config import ORDER_STATE_FILE, DEBUG_LOGIN_HTML, DEBUG_CHUNK_JS, DEBUG_ORDERS_HTML, DEBUG_ORDER_DETAILS_HTML, LOGIN_STATE_TREE_ENCODED
+from config import ORDER_STATE_FILE, DEBUG_ORDER_DETAILS_HTML, LOGIN_STATE_TREE_ENCODED, DEBUG_ORDERS_HTML
 from core.storage import load_json_file, save_json_file
-from core.helpers import clean_text, parse_sale_datetime, is_event_expired
+from core.helpers import clean_text, parse_sale_datetime, to_number, parse_event_datetime
 from platforms.base import OrderPlatformAdapter
 
 class LiveTicketGroupAdapter(OrderPlatformAdapter):
@@ -18,737 +18,213 @@ class LiveTicketGroupAdapter(OrderPlatformAdapter):
         self.restore_session()
 
     def restore_session(self):
-        data = load_json_file(ORDER_STATE_FILE, {})
-        source_state = data.get(self.source_name, {})
-        self.next_action = source_state.get("next_action")
-        cookies = source_state.get("cookies", {})
-
-        for name, value in cookies.items():
-            try:
-                self.session.cookies.set(name, value)
-            except Exception:
-                pass
+        data = load_json_file(ORDER_STATE_FILE, {}).get(self.source_name, {})
+        self.next_action = data.get("next_action")
+        for k, v in data.get("cookies", {}).items():
+            try: self.session.cookies.set(k, v)
+            except: pass
 
     def persist_session(self):
         data = load_json_file(ORDER_STATE_FILE, {})
-        cookies_dict = {}
-
-        for c in self.session.cookies:
-            try:
-                cookies_dict[c.name] = c.value
-            except Exception:
-                pass
-
-        data[self.source_name] = {
-            "cookies": cookies_dict,
-            "next_action": self.next_action,
-        }
+        cookies = {}
+        try:
+            for c in self.session.cookies:
+                if hasattr(c, 'name'): cookies[c.name] = c.value
+                elif isinstance(c, str): cookies[c] = self.session.cookies.get(c)
+        except: pass
+        data[self.source_name] = {"cookies": cookies, "next_action": self.next_action}
         save_json_file(ORDER_STATE_FILE, data)
 
     def looks_authenticated_response(self, response):
-        url = str(response.url).lower()
-        text = response.text.lower()
-
-        if "my.liveticketgroup.com" in url:
-            if 'name="email"' in text and 'name="password"' in text:
-                return False
-            return True
-
-        if "liveticketgroup.com/login" in url:
-            return False
-
-        return False
-
-    def get_login_page(self):
-        headers = {
-            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            "accept-language": "en-GB,en;q=0.9",
-            "priority": "u=0, i",
-            "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-            "sec-fetch-dest": "document",
-            "sec-fetch-mode": "navigate",
-            "sec-fetch-site": "none",
-            "sec-fetch-user": "?1",
-            "upgrade-insecure-requests": "1",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-        }
-        context.state.log(f"{self.source_name}: opening login page")
-        r = self.session.get(self.config["login_url"], headers=headers, timeout=30)
-        r.raise_for_status()
-        return r
+        return "my.liveticketgroup.com" in str(response.url).lower() and 'name="email"' not in response.text.lower()
 
     def fetch_next_action(self):
-        headers = {
-            "sec-ch-ua-platform": '"Windows"',
-            "Referer": self.config["login_url"],
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-            "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
-            "sec-ch-ua-mobile": "?0",
-        }
-
-        context.state.log(f"{self.source_name}: opening login page for dynamic chunk discovery")
-        login_page = self.session.get(self.config["login_url"], headers=headers, timeout=30)
-        login_page.raise_for_status()
-
-        html = login_page.text
-        with open(DEBUG_LOGIN_HTML, "w", encoding="utf-8") as f:
-            f.write(html)
-
-        chunk_candidates = re.findall(r'(/_next/static/chunks/[^"\']+?\.js)', html)
-        if not chunk_candidates:
-            raise RuntimeError(f"{self.source_name}: could not find any Next.js chunk in login page")
-
-        next_action = None
-        chosen_chunk_url = None
-
-        for chunk_path in chunk_candidates:
-            chunk_url = "https://www.liveticketgroup.com" + chunk_path
-            try:
-                context.state.log(f"{self.source_name}: checking chunk -> {chunk_url}")
-                js_resp = self.session.get(chunk_url, headers=headers, timeout=30)
-                js_resp.raise_for_status()
-
-                match = re.search(r'createServerReference\)\("(.*?)"', js_resp.text)
-                if match:
-                    next_action = match.group(1)
-                    chosen_chunk_url = chunk_url
-
-                    with open(DEBUG_CHUNK_JS, "w", encoding="utf-8") as f:
-                        f.write(js_resp.text)
-                    break
-            except Exception:
-                continue
-
-        if not next_action:
-            raise RuntimeError(
-                f"{self.source_name}: could not extract next-action from discovered chunks. "
-                f"Check {os.path.basename(DEBUG_LOGIN_HTML)}"
-            )
-
-        self.next_action = next_action
+        try:
+            r = self.session.get(self.config["login_url"], headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+            chunks = re.findall(r'(/_next/static/chunks/[^"\']+?\.js)', r.text)
+            for c in chunks:
+                try:
+                    js = self.session.get("https://www.liveticketgroup.com" + c, timeout=30).text
+                    m = re.search(r'createServerReference\)\("(.*?)"', js)
+                    if m: self.next_action = m.group(1); break
+                except: continue
+        except Exception as e: print(f"LTG next_action error: {e}")
         self.persist_session()
-        context.state.log(f"{self.source_name}: dynamic next-action extracted from {chosen_chunk_url}")
 
     def login(self):
-        username = self.config.get("username", "").strip()
-        password = self.config.get("password", "").strip()
-
-        if not username or not password:
-            raise RuntimeError(f"{self.source_name}: username/password not configured")
-
-        self.get_login_page()
         self.fetch_next_action()
+        if not self.next_action: return
+        payload = json.dumps([{"email": self.config["username"], "password": self.config["password"]}])
+        r = self.session.post(self.config["login_url"], headers={"accept": "text/x-component", "content-type": "text/plain;charset=UTF-8", "next-action": self.next_action, "next-router-state-tree": LOGIN_STATE_TREE_ENCODED}, data=payload, timeout=30)
+        m = re.search(r'"NEXT_REDIRECT;replace;(.*?);', r.text)
+        if m: self.session.get(m.group(1), allow_redirects=True, timeout=30); self.persist_session()
 
-        headers = {
-            "accept": "text/x-component",
-            "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
-            "content-type": "text/plain;charset=UTF-8",
-            "next-action": self.next_action,
-            "next-router-state-tree": LOGIN_STATE_TREE_ENCODED,
-            "origin": "https://www.liveticketgroup.com",
-            "priority": "u=1, i",
-            "referer": self.config["login_url"],
-            "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "same-origin",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-        }
-
-        payload = json.dumps([{"email": username, "password": password}])
-
-        context.state.log(f"{self.source_name}: sending login request")
-        response = self.session.post(
-            self.config["login_url"],
-            headers=headers,
-            data=payload,
-            timeout=30,
-        )
-        response.raise_for_status()
-
-        with open(DEBUG_LOGIN_HTML, "w", encoding="utf-8") as f:
-            f.write(response.text)
-
-        redirect_match = re.search(r'"NEXT_REDIRECT;replace;(.*?);', response.text)
-        if not redirect_match:
-            raise RuntimeError(
-                f"{self.source_name}: login redirect not found. "
-                f"Check {os.path.basename(DEBUG_LOGIN_HTML)}"
-            )
-
-        redirect_url = redirect_match.group(1)
-        context.state.log(f"{self.source_name}: redirect found -> {redirect_url}")
-
-        follow = self.session.get(
-            redirect_url,
-            headers={
-                "User-Agent": headers["user-agent"],
-                "Referer": self.config["login_url"],
-            },
-            allow_redirects=True,
-            timeout=30,
-        )
-        follow.raise_for_status()
-
-        self.persist_session()
-        context.state.log(f"{self.source_name}: login successful")
-
-    def get_orders_page(self):
-        headers = {
-            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            "accept-language": "en-GB,en;q=0.9",
-            "priority": "u=0, i",
-            "referer": "https://my.liveticketgroup.com/pages/content/index.aspx?TopNav=1&SubNav=4",
-            "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-            "sec-fetch-dest": "document",
-            "sec-fetch-mode": "navigate",
-            "sec-fetch-site": "same-origin",
-            "sec-fetch-user": "?1",
-            "upgrade-insecure-requests": "1",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-        }
-
-        params = {
-            "TopNav": "1",
-            "SubNav": "4",
-            "urgent": "672",
-        }
-
-        context.state.log(f"{self.source_name}: loading urgent orders page")
-        r = self.session.get(
-            self.config["orders_base_url"],
-            params=params,
-            headers=headers,
-            timeout=30,
-        )
-        r.raise_for_status()
-        self.persist_session()
-        return r
-
-    def ensure_logged_in(self):
+    def ensure_logged_in(self, target_url=None):
+        url = target_url or "https://my.liveticketgroup.com/pages/content/orders.aspx?topnav=1&subnav=26"
         try:
-            response = self.get_orders_page()
-            if self.looks_authenticated_response(response):
-                context.state.session_status = "✅ Active"
-                context.state.log(f"{self.source_name}: existing session still active")
-                return response.text
-
-            context.state.log(f"{self.source_name}: existing session not authenticated")
+            r = self.session.get(url, timeout=30)
+            if "Exception:" in r.text and "Refresh token" in r.text:
+                raise Exception("LiveTicketGroup session expired. Please re-login.")
+            if self.looks_authenticated_response(r): return r.text
         except Exception as e:
-            context.state.log(f"{self.source_name}: session check failed: {repr(e)}")
-
-        context.state.session_status = "⚠ Re-logging"
+            if "session expired" in str(e): raise e
+        
         self.login()
-
-        response = self.get_orders_page()
-        if not self.looks_authenticated_response(response):
-            with open(DEBUG_ORDERS_HTML, "w", encoding="utf-8") as f:
-                f.write(response.text)
-            raise RuntimeError(
-                f"{self.source_name}: still unauthenticated after login. "
-                f"Check {os.path.basename(DEBUG_ORDERS_HTML)}"
-            )
-
-        context.state.session_status = "✅ Active"
-        return response.text
-
-    def find_orders_table(self, soup):
-        for table in soup.find_all("table"):
-            rows = table.find_all("tr")
-            if not rows:
-                continue
-
-            first_row = rows[0]
-            headers = [clean_text(x.get_text(" ", strip=True)).lower() for x in first_row.find_all(["th", "td"])]
-            if not headers:
-                continue
-
-            joined = " | ".join(headers)
-            if all(k in joined for k in ["id", "status", "sale", "event"]):
-                return table, headers
-
-        return None, []
+        r2 = self.session.get(url, timeout=30)
+        if "Exception:" in r2.text and "Refresh token" in r2.text:
+            raise Exception("LiveTicketGroup session expired. Please re-login.")
+        return r2.text
 
     def parse_orders_from_html(self, html):
+        if not html: return [], None
+        with open(DEBUG_ORDERS_HTML, "w", encoding="utf-8") as f: f.write(html)
         soup = BeautifulSoup(html, "html.parser")
-        table, headers = self.find_orders_table(soup)
-
-        if table is None:
-            with open(DEBUG_ORDERS_HTML, "w", encoding="utf-8") as f:
-                f.write(html)
-            raise RuntimeError(f"{self.source_name}: orders table not found")
-
-        column_map = {}
-        for i, header in enumerate(headers):
-            h = header.lower()
-            if h == "id":
-                column_map["id"] = i
-            elif h == "status":
-                column_map["status"] = i
-            elif "sale date" in h:
-                column_map["sale_date"] = i
-            elif "event date" in h:
-                column_map["event_date"] = i
-            elif h == "event" or "event" in h:
-                column_map["event"] = i
-            elif "customer" in h or "name" in h or "client" in h or "buyer" in h:
-                column_map["customer"] = i
-            elif "resale" in h:
-                column_map["resale_status"] = i
-
-        required = ["id", "status", "sale_date", "event_date", "event", "customer"]
-        missing = [x for x in required if x not in column_map]
-        if missing:
-            raise RuntimeError(f"{self.source_name}: missing columns -> {', '.join(missing)}")
-
+        table = None
+        for t in soup.find_all("table"):
+            h = [x.get_text().lower() for x in t.find_all(["th", "td"])[:30]]
+            if any("id" in x for x in h) and (any("status" in x for x in h) or any("event" in x for x in h)):
+                table = t; break
+        if not table: return [], None
         rows = []
-        latest_order = None
-        latest_dt = None
-
         for tr in table.find_all("tr")[1:]:
             tds = tr.find_all("td")
-            if not tds:
-                continue
+            if len(tds) < 5: continue
+            headers = [clean_text(th.get_text()).lower() for th in table.find_all("tr")[0].find_all(["th", "td"])]
+            id_idx = next((i for i, h in enumerate(headers) if h == "id"), 0)
+            
+            if len(tds) <= id_idx: continue
+            oid_txt = clean_text(tds[id_idx].get_text())
+            if not oid_txt.isdigit(): continue
+            
+            def get_val(lbls):
+                for i, h in enumerate(headers):
+                    if any(l in h for l in lbls) and i < len(tds): return clean_text(tds[i].get_text())
+                return None
 
-            try:
-                row_data = {
-                    "id": clean_text(tds[column_map["id"]].get_text(" ", strip=True)),
-                    "customer": clean_text(tds[column_map["customer"]].get_text(" ", strip=True)),
-                    "status": clean_text(tds[column_map["status"]].get_text(" ", strip=True)),
-                    "resale_status": clean_text(tds[column_map["resale_status"]].get_text(" ", strip=True)) if "resale_status" in column_map else "",
-                    "sale_date": clean_text(tds[column_map["sale_date"]].get_text(" ", strip=True)),
-                    "event_date": clean_text(tds[column_map["event_date"]].get_text(" ", strip=True)),
-                    "event": clean_text(tds[column_map["event"]].get_text(" ", strip=True)),
-                    "source": self.source_name,
-                }
-            except Exception:
-                continue
-
-            if not row_data["id"]:
-                continue
-
-            if not is_event_expired(row_data["event_date"]):
-                rows.append(row_data)
-
-            sale_dt = parse_sale_datetime(row_data["sale_date"])
-            if sale_dt is not None and (latest_dt is None or sale_dt > latest_dt):
-                latest_dt = sale_dt
-                latest_order = row_data
-
-        if latest_order is None and rows:
-            latest_order = rows[0]
-
-        return rows, latest_order
+            rows.append({
+                "id": oid_txt, 
+                "status": get_val(["status"]) or (clean_text(tds[1].get_text()) if len(tds)>1 else "Unknown"),
+                "resale_status": get_val(["resale"]) or (clean_text(tds[2].get_text()) if len(tds)>2 else None),
+                "customer": get_val(["customer", "buyer"]) or (clean_text(tds[3].get_text()) if len(tds)>3 else "-"),
+                "sale_date": get_val(["sale date"]) or (clean_text(tds[4].get_text()) if len(tds)>4 else "-"),
+                "event_date": get_val(["event date"]) or (clean_text(tds[5].get_text()) if len(tds)>5 else "-"),
+                "event": get_val(["event"]) or (clean_text(tds[6].get_text()) if len(tds)>6 else "-"),
+                "quantity": to_number(get_val(["qty", "quantity", "tickets"])) or (to_number(clean_text(tds[7].get_text())) if len(tds)>7 else 1),
+                "total_price": to_number(get_val(["total", "price", "value"])) or (to_number(clean_text(tds[8].get_text())) if len(tds)>8 else None),
+                "currency": "£", "source": self.source_name
+            })
+        return rows, rows[0] if rows else None
 
     def fetch_orders(self):
-        html = self.ensure_logged_in()
+        # Go to urgent orders page (Dashboard)
+        url = "https://my.liveticketgroup.com/pages/content/index.aspx?topnav=1&subnav=4"
+        html = self.ensure_logged_in(url)
+        soup = BeautifulSoup(html, "html.parser")
+        
+        # Submit the urgent orders filter (672 for 4 weeks)
+        dropdown = soup.find("select", {"name": "ctl00$plcContent$urcDashBoard$urcToBeDispatch$drpUrgentOrders"})
+        if dropdown:
+            data = {
+                "__VIEWSTATE": soup.find("input", id="__VIEWSTATE")["value"] if soup.find("input", id="__VIEWSTATE") else "",
+                "__VIEWSTATEGENERATOR": soup.find("input", id="__VIEWSTATEGENERATOR")["value"] if soup.find("input", id="__VIEWSTATEGENERATOR") else "",
+                "__EVENTVALIDATION": soup.find("input", id="__EVENTVALIDATION")["value"] if soup.find("input", id="__EVENTVALIDATION") else "",
+                "ctl00$plcContent$urcDashBoard$urcToBeDispatch$drpUrgentOrders": "672",
+            }
+            try:
+                r_post = self.session.post(url, data=data, timeout=30)
+                rows, _ = self.parse_orders_from_html(r_post.text)
+                if rows: return rows, rows[0]
+            except: pass
+        
+        # Fallback to general parsing
         return self.parse_orders_from_html(html)
 
     def fetch_orders_by_event(self, event_name):
+        html = self.ensure_logged_in("https://my.liveticketgroup.com/pages/content/orders.aspx?topnav=1&subnav=26")
+        soup = BeautifulSoup(html, "html.parser")
+        data = {
+            "__VIEWSTATE": soup.find("input", id="__VIEWSTATE")["value"] if soup.find("input", id="__VIEWSTATE") else "",
+            "__VIEWSTATEGENERATOR": soup.find("input", id="__VIEWSTATEGENERATOR")["value"] if soup.find("input", id="__VIEWSTATEGENERATOR") else "",
+            "__EVENTVALIDATION": soup.find("input", id="__EVENTVALIDATION")["value"] if soup.find("input", id="__EVENTVALIDATION") else "",
+            "ctl00$plcContent$urcSearch$txtEventName": event_name,
+            "ctl00$plcContent$urcSearch$txtStartDate": "2024-01-01",
+            "ctl00$plcContent$urcSearch$btnSearch": "Search"
+        }
+        r_post = self.session.post("https://my.liveticketgroup.com/pages/content/orders.aspx?topnav=1&subnav=26", data=data, timeout=30)
+        rows, _ = self.parse_orders_from_html(r_post.text)
+        return rows
+
+    def fetch_order_details(self, order_id):
         self.ensure_logged_in()
-        
-        headers = {
-            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            "accept-language": "en-GB,en;q=0.9",
-            "priority": "u=0, i",
-            "referer": "https://my.liveticketgroup.com/pages/content/index.aspx?TopNav=1&SubNav=4",
-            "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-            "sec-fetch-dest": "document",
-            "sec-fetch-mode": "navigate",
-            "sec-fetch-site": "same-origin",
-            "sec-fetch-user": "?1",
-            "upgrade-insecure-requests": "1",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        url = f"https://my.liveticketgroup.com/Pages/Content/RefreshTokenRedirect.aspx?portalapiurl=https://www.liveticketgroup.com/orders/{order_id}"
+        r = self.session.get(url, timeout=30, allow_redirects=True)
+        html = r.text
+        if "Exception:" in html or "Refresh token" in html or "System.Web" in html:
+            raise Exception("LiveTicketGroup session expired. Please re-login.")
+        try:
+            m = re.search(r'(\{"id":' + str(order_id) + r',.*?\})', html)
+            if m: return self._map_ltg_json_to_db(json.loads(m.group(1)), html, url)
+        except: pass
+        return self._parse_ltg_details_html(html, order_id, url)
+
+    def _map_ltg_json_to_db(self, data, html, source_url):
+        if not isinstance(data, dict): return {}
+        buyer = data.get("buyer") or {}; tinfo = data.get("ticketInfo") or {}; pdet = tinfo.get("pricingDetails") or {}; show = data.get("show") or {}
+        seating_list = tinfo.get("seating", [])
+        seat_names = [str(s.get("name", "")) if isinstance(s, dict) else str(s) for s in seating_list]
+        return {
+            "event_name": show.get("name") if isinstance(show, dict) else str(show), 
+            "event_date": parse_event_datetime(show.get("showDate")) if isinstance(show, dict) else None,
+            "customer_name": buyer.get("fullName"), "billing_full_name": buyer.get("fullName"),
+            "mobile_number": buyer.get("shipping", {}).get("mobile") or buyer.get("billing", {}).get("mobile"),
+            "billing_mobile": buyer.get("billing", {}).get("mobile"), "email": buyer.get("email"),
+            "sale_date": parse_sale_datetime(data.get("createdOn")), "raw_status": data.get("status"), "resale_status": data.get("resaleStatus"),
+            "category": tinfo.get("category"), "section": tinfo.get("section") or tinfo.get("category"),
+            "row_name": tinfo.get("row"), "seat_number": ", ".join(seat_names),
+            "quantity": tinfo.get("quantity"), "list_price_per_ticket": to_number(pdet.get("listPrice")),
+            "shipping_type": data.get("shippingMethod"), "shipping_amount": to_number(pdet.get("shipping")),
+            "total_amount": to_number(pdet.get("total")), "total_value": to_number(pdet.get("total")),
+            "currency": data.get("currency"), "delivery_status": data.get("shippingStatus"),
+            "pod_status": "Sent" if data.get("podSubmitted") else "Pending", "broker_name": data.get("brokerName"),
+            "source_url": source_url, "details_fetched_at": datetime.utcnow(), "raw_payload": {"json": data}
         }
 
-        search_url = "https://my.liveticketgroup.com/pages/content/orders.aspx?topnav=1&subnav=26"
-        
-        try:
-            # 1. GET the page to grab ASP.NET states
-            r_get = self.session.get(search_url, headers=headers, timeout=30)
-            r_get.raise_for_status()
-            soup = BeautifulSoup(r_get.text, "html.parser")
-            
-            viewstate = soup.find("input", id="__VIEWSTATE")
-            viewstategen = soup.find("input", id="__VIEWSTATEGENERATOR")
-            eventvalidation = soup.find("input", id="__EVENTVALIDATION")
-            
-            data = {
-                "__VIEWSTATE": viewstate["value"] if viewstate else "",
-                "__VIEWSTATEGENERATOR": viewstategen["value"] if viewstategen else "",
-                "__EVENTVALIDATION": eventvalidation["value"] if eventvalidation else "",
-                "ctl00$plcContent$urcSearch$txtEventName": event_name,
-                "ctl00$plcContent$urcSearch$btnSearch": "Search"
-            }
-            
-            # 2. POST the search
-            r_post = self.session.post(search_url, headers=headers, data=data, timeout=30)
-            r_post.raise_for_status()
-            
-            # 3. Parse the resulting table
-            rows, _ = self.parse_orders_from_html(r_post.text)
-            
-            # Double check filtering locally just in case
-            ev_lower = clean_text(event_name).lower()
-            matched = [r for r in rows if ev_lower in clean_text(r.get("event", "")).lower()]
-            
-            return matched
-            
-        except Exception as e:
-            context.state.log(f"{self.source_name}: error during POST search for {event_name} -> {repr(e)}")
-            return []
-
+    def _parse_ltg_details_html(self, html, order_id, source_url):
+        soup = BeautifulSoup(html, "html.parser")
+        def find_val(labels):
+            for l in labels:
+                el = soup.find(string=re.compile(r'^' + l + r'$', re.I)) or soup.find(string=re.compile(l, re.I))
+                if el:
+                    p = el.parent
+                    while p and not p.find_next_sibling(): p = p.parent
+                    if p: 
+                        nxt = p.find_next()
+                        if nxt: return clean_text(nxt.get_text())
+            return None
+        def extract_by_label(label):
+            target = soup.find(string=re.compile(label, re.I))
+            if target:
+                sib = target.find_next()
+                if sib: return clean_text(sib.get_text())
+            return None
+        lp = extract_by_label("List Price per ticket"); qty = extract_by_label("Qty."); ship = extract_by_label("Shipping"); tot = extract_by_label("Total Amount")
+        fname = extract_by_label("Full name"); mob = extract_by_label("Mobile")
+        curr = "£"
+        if tot:
+            if "€" in tot: curr = "€"
+            elif "$" in tot: curr = "$"
+        return {
+            "order_number": str(order_id), "event_name": find_val(["Event", "Show"]), "event_date": parse_event_datetime(find_val(["Date"])),
+            "customer_name": fname or find_val(["Customer", "Buyer"]), "billing_full_name": fname,
+            "mobile_number": mob or find_val(["Mobile", "Phone"]), "billing_mobile": mob,
+            "sale_date": parse_sale_datetime(find_val(["Created", "Sale Date"])), "raw_status": find_val(["Status"]),
+            "quantity": to_number(qty) or 1, "list_price_per_ticket": to_number(lp),
+            "shipping_type": ship.split("(")[0].strip() if ship else None, "shipping_amount": to_number(ship),
+            "total_amount": to_number(tot), "total_value": to_number(tot), "currency": curr,
+            "pod_status": "Pending", "details_fetched_at": datetime.utcnow(), "source_url": source_url, "raw_payload": {"html_parsing": True}
+        }
 
 def get_ltg_adapter():
     for item in context.platform_adapters:
-        if getattr(item, "source_name", "") == "LiveTicketGroup":
-            return item
+        if getattr(item, "source_name", "") == "LiveTicketGroup": return item
     return None
-
-
-def parse_ltg_order_details_html(html, order_id=None):
-    import json
-    import re
-    
-    text = html.replace("\\\"", "\"").replace("\\\\", "\\")
-    start = -1
-    
-    if order_id:
-        start = text.find(f'{{"id":{order_id},')
-        if start == -1:
-            start = text.find(f'{{"id":"{order_id}",')
-    
-    if start == -1:
-        m = re.search(r'(\{"id":\d+,"ticketHistoryId":)', text)
-        if m:
-            start = m.start(1)
-            
-    if start != -1:
-        count = 0
-        end = -1
-        for i in range(start, len(text)):
-            if text[i] == "{": count += 1
-            elif text[i] == "}":
-                count -= 1
-                if count == 0:
-                    end = i + 1
-                    break
-        if end != -1:
-            try:
-                data = json.loads(text[start:end])
-                
-                event_name = "-"
-                league = "-"
-                venue = "-"
-                event_date = "-"
-                if "show" in data:
-                    event_name = data["show"].get("name", "-")
-                    league = data["show"].get("typeName", "-")
-                    venue = data["show"].get("venueName", "-")
-                    event_date = data["show"].get("showDate", "-")
-                
-                customer_name = "-"
-                customer_phone = "-"
-                if "buyer" in data:
-                    buyer = data["buyer"]
-                    customer_name = buyer.get("fullName", "-")
-                    if "billing" in buyer and buyer["billing"].get("mobile"):
-                        customer_phone = buyer["billing"]["mobile"]
-                    elif "shipping" in buyer and buyer["shipping"].get("mobile"):
-                        customer_phone = buyer["shipping"]["mobile"]
-                
-                category = "-"
-                row_value = "-"
-                seating = "-"
-                quantity = "-"
-                price_per_ticket = "-"
-                total_amount = "-"
-                shipping = "-"
-                
-                if "ticketInfo" in data:
-                    tinfo = data["ticketInfo"]
-                    category = tinfo.get("category", "-")
-                    row_value = tinfo.get("row", "-")
-                    quantity = str(tinfo.get("quantity", "-"))
-                    if "seating" in tinfo and isinstance(tinfo["seating"], list):
-                        seating = ", ".join([s.get("name", "") for s in tinfo["seating"] if "name" in s])
-                    if "pricingDetails" in tinfo:
-                        pdet = tinfo["pricingDetails"]
-                        price_per_ticket = str(pdet.get("pricePaidPerTicket", "-"))
-                        total_amount = str(pdet.get("total", "-"))
-                        shipping = str(pdet.get("shipping", "-"))
-                        
-                currency = data.get("currency", "£")
-                if currency == "GBP": currency = "£"
-                elif currency == "EUR": currency = "€"
-                elif currency == "USD": currency = "$"
-                
-                if price_per_ticket != "-":
-                    price_per_ticket = f"{currency}{price_per_ticket}"
-                if total_amount != "-":
-                    total_amount = f"{currency}{total_amount}"
-                
-                attendees = []
-                if "attendees" in data and "attendeeDetails" in data["attendees"]:
-                    for att in data["attendees"]["attendeeDetails"]:
-                        name = f"{att.get('firstName', '')} {att.get('lastName', '')}".strip()
-                        if name:
-                            attendees.append(name)
-                
-                return {
-                    "event": event_name,
-                    "league": league,
-                    "venue": venue,
-                    "event_date": event_date,
-                    "status": data.get("status", "-"),
-                    "customer_name": customer_name,
-                    "customer_phone": customer_phone,
-                    "area": category,
-                    "category": category,
-                    "section": "-",
-                    "row": row_value,
-                    "seating": seating,
-                    "allocation": "-",
-                    "delivery": shipping,
-                    "shipping": shipping,
-                    "quantity": quantity,
-                    "ticket_type": category,
-                    "price": price_per_ticket.replace("£", "").replace("€", "").replace("$", "").strip() if price_per_ticket != "-" else "-",
-                    "price_per_ticket": price_per_ticket,
-                    "total_price": total_amount,
-                    "restrictions": "-",
-                    "notes": "-",
-                    "sale_date": data.get("createdOn", "-"),
-                    "processed_on": data.get("processedOn", "-"),
-                    "attendees": attendees,
-                    "line_items": [[category, "-", row_value, seating, "-", shipping, quantity]] if category != "-" else [],
-                }
-            except Exception:
-                pass
-
-    # Fallback to BeautifulSoup parsing
-    soup = BeautifulSoup(html, "html.parser")
-    page_text = soup.get_text("\n", strip=True)
-
-    def txt(node):
-        try:
-            return clean_text(node.get_text(" ", strip=True)) if node else "-"
-        except Exception:
-            return "-"
-
-    def norm(value):
-        return clean_text(value).lower().replace(":", "").strip()
-
-    def clean_shipping(value):
-        value = clean_text(value)
-        value = re.sub(r"\s*\(\s*[£$]\s*[0-9.,]+\s*\)", "", value).strip()
-        return value or "-"
-
-    def find_event():
-        try:
-            el = soup.select_one("p.MuiTypography-subtitle1")
-            if el:
-                v = txt(el)
-                if " vs " in v.lower():
-                    return v
-        except Exception:
-            pass
-
-        m = re.search(r'([A-Za-z0-9 &\'\-.]+ vs [A-Za-z0-9 &\'\-.]+)', page_text, re.IGNORECASE)
-        if m:
-            return clean_text(m.group(1))
-
-        return "-"
-
-    def find_league():
-        patterns = [
-            r'English Premier League',
-            r'Premier League',
-            r'Champions League',
-            r'Europa League',
-            r'FA Cup',
-            r'Carabao Cup',
-            r'La Liga',
-            r'Bundesliga',
-            r'Serie A',
-            r'Ligue 1',
-        ]
-        for p in patterns:
-            m = re.search(p, page_text, re.IGNORECASE)
-            if m:
-                return clean_text(m.group(0))
-        return "-"
-
-    def find_venue():
-        lines = [clean_text(x) for x in page_text.splitlines() if clean_text(x)]
-        for line in lines:
-            if "|" in line:
-                lower = line.lower()
-                if any(k in lower for k in [
-                    "liverpool", "manchester", "london", "united kingdom",
-                    "stadium", "road", "park", "bridge", "anfield", "old trafford"
-                ]):
-                    return line
-        return "-"
-
-    def find_event_date():
-        lines = [clean_text(x) for x in page_text.splitlines() if clean_text(x)]
-        for line in lines:
-            if re.search(r'\b\d{1,2}(st|nd|rd|th)\s+[A-Za-z]{3,9}\s+\d{4}\s+\d{1,2}:\d{2}\b', line, re.IGNORECASE):
-                return line
-        return "-"
-
-    def extract_pairs():
-        pairs = {}
-
-        try:
-            for block in soup.find_all(["div", "section"]):
-                children = block.find_all(["p", "span"], recursive=False)
-                texts = [txt(c) for c in children if txt(c) != "-"]
-                if len(texts) == 2:
-                    label = norm(texts[0])
-                    value = texts[1]
-                    if label and value and len(label) < 50:
-                        pairs[label] = value
-        except Exception:
-            pass
-
-        try:
-            ps = soup.find_all("p")
-            for i in range(len(ps) - 1):
-                label = norm(txt(ps[i]))
-                value = txt(ps[i + 1])
-                if label and value and len(label) < 50 and label not in pairs:
-                    pairs[label] = value
-        except Exception:
-            pass
-
-        return pairs
-
-    def find_attendees():
-        attendees = []
-        try:
-            match = re.search(r'Attendees(.*?)(Restrictions|Listing Notes|Order Summary|$)', page_text, re.DOTALL | re.IGNORECASE)
-            if match:
-                chunk = match.group(1)
-                for line in chunk.splitlines():
-                    line = clean_text(line)
-                    if not line or line.lower() == "attendees":
-                        continue
-                    if len(line.split()) >= 2 and line not in attendees:
-                        attendees.append(line)
-        except Exception:
-            pass
-        return attendees
-
-    pairs = extract_pairs()
-
-    category = pairs.get("category", "-")
-    section = pairs.get("section", "-")
-    row_value = pairs.get("row", "-")
-    seating = pairs.get("seating arr", pairs.get("seating", "-"))
-    allocation = pairs.get("allocation", "-")
-    shipping = clean_shipping(pairs.get("shipping", pairs.get("delivery", "-")))
-    quantity = pairs.get("qty", pairs.get("quantity", pairs.get("qty.", "-")))
-    restrictions = pairs.get("restrictions", "-")
-    listing_notes = pairs.get("listing notes", pairs.get("notes", "-"))
-    customer_name = pairs.get("full name", pairs.get("customer name", "-"))
-    customer_phone = pairs.get("mobile", pairs.get("phone", "-"))
-    price_per_ticket = pairs.get("list price per ticket", pairs.get("price per ticket", "-"))
-    total_amount = pairs.get("total amount", pairs.get("total price", "-"))
-
-    if category == "-":
-        m = re.search(r'ANFIELD ROAD UPPER|ANFIELD ROAD LOWER|MAIN STAND|SIR KENNY DALGLISH STAND|KOP', page_text, re.IGNORECASE)
-        if m:
-            category = clean_text(m.group(0))
-
-    event = find_event()
-    league = find_league()
-    venue = find_venue()
-    event_date = find_event_date()
-
-    line_items = []
-    if any(v != "-" for v in [category, section, row_value, seating, allocation, shipping, quantity]):
-        line_items.append([
-            category,
-            section,
-            row_value,
-            seating,
-            allocation,
-            shipping,
-            quantity
-        ])
-
-    return {
-        "event": event,
-        "league": league,
-        "venue": venue,
-        "event_date": event_date,
-        "status": pairs.get("status", "-"),
-        "customer_name": customer_name,
-        "customer_phone": customer_phone,
-        "area": category if category != "-" else section,
-        "category": category,
-        "section": section,
-        "row": row_value,
-        "seating": seating,
-        "allocation": allocation,
-        "delivery": shipping,
-        "shipping": shipping,
-        "quantity": quantity,
-        "ticket_type": allocation if allocation != "-" else category,
-        "price": price_per_ticket.replace("£", "").strip() if price_per_ticket != "-" else "-",
-        "price_per_ticket": price_per_ticket,
-        "total_price": total_amount,
-        "restrictions": restrictions,
-        "notes": listing_notes,
-        "sale_date": pairs.get("sale date", "-"),
-        "processed_on": pairs.get("processed on", "-"),
-        "attendees": find_attendees(),
-        "line_items": line_items,
-    }
-
-def get_ltg_order_details(order_id):
-    adapter = get_ltg_adapter()
-    if adapter is None:
-        raise RuntimeError("LiveTicketGroup adapter is not enabled")
-
-    adapter.ensure_logged_in()
-
-    detail_url = (
-        "https://my.liveticketgroup.com/Pages/Content/RefreshTokenRedirect.aspx"
-        f"?portalapiurl=https://www.liveticketgroup.com/orders/{order_id}"
-    )
-
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://my.liveticketgroup.com/",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    }
-
-    r = adapter.session.get(detail_url, headers=headers, timeout=30, allow_redirects=True)
-    r.raise_for_status()
-
-    html = r.text
-
-    with open(DEBUG_ORDER_DETAILS_HTML, "w", encoding="utf-8") as f:
-        f.write(html)
-
-    if not html or len(html.strip()) < 100:
-        raise RuntimeError("Order details page returned empty or too short HTML")
-
-    parsed = parse_ltg_order_details_html(html, order_id=order_id)
-    parsed["detail_url"] = detail_url
-
-    if not isinstance(parsed, dict):
-        raise RuntimeError("Parsed order details is not a dictionary")
-
-    return parsed

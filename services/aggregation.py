@@ -7,6 +7,10 @@ def build_event_totals_from_cache(rows):
     grouped = {}
 
     for row in rows:
+        dash_status = clean_text(row.get("dashboard_status", "")).lower()
+        if dash_status == "cancelled":
+            continue
+
         event_name = clean_text(row.get("event", "Unknown")) or "Unknown"
         source = clean_text(row.get("source", "Unknown")) or "Unknown"
         order_id = clean_text(row.get("id", ""))

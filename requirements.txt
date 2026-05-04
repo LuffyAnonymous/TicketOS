@@ -4,3 +4,6 @@ curl_cffi
 pyjwt
 werkzeug
 playwright
+psycopg2-binary
+SQLAlchemy
+python-dotenv
