@@ -288,21 +288,41 @@ def register_routes(app):
         try:
             from services.telegram_service import send_telegram
             msg = (
-                "NEW ORDER DETECTED\n\n"
-                "Order number: TEST-12345\n"
-                "Event name: Arsenal vs Chelsea (TEST)\n"
-                "Customer name: John Doe\n"
-                "Mobile number: +447000000000\n"
-                "Quantity: 2\n"
-                "List price per ticket: £150.00\n"
-                "Shipping: Mobile (0.00)\n"
-                "Total amount: £300.00\n"
-                "Billing full name: John Doe\n"
-                "Billing mobile: +447000000000\n"
-                "Raw status: Pending\n"
-                "Sale date: 2026-05-15 20:00:00\n"
-                "Source: LiveTicketGroup"
+                "🟢 NEW ORDER\n\n"
+                "Source: LiveTicketGroup\n"
+                "Event: Arsenal vs Chelsea (TEST)\n"
+                "Date: 2026-05-15 20:00:00\n"
+                "Order Number: TEST-12345\n"
+                "Name: John Doe"
             )
             send_telegram(msg)
             return jsonify({"ok": True})
         except Exception as e: return jsonify({"error": str(e)}), 500
+
+    @app.post("/api/system/check-ticketsshop")
+    @login_required
+    def api_check_ticketsshop():
+        try:
+            db = get_db()
+            ltg_orders = db.query(DBOrder).filter(DBOrder.platform == "LiveTicketGroup").all()
+            if not ltg_orders:
+                return jsonify({"ok": True, "message": "No active LiveTicketGroup orders to check."})
+                
+            orders_to_check = [{"id": o.order_number, "event": o.event_name} for o in ltg_orders]
+            
+            from services.inventory_service import check_ticketsshop_bulk
+            result = check_ticketsshop_bulk(orders_to_check)
+            
+            missing = result.get("missing", [])
+            listed = result.get("listed", [])
+            
+            if missing:
+                from services.telegram_service import send_telegram
+                alert_lines = ["⚠️ TICKETSHOP MISSING ORDERS ALERT\n", "The following active LTG orders were NOT found on Ticketshop:\n"]
+                for m in missing:
+                    alert_lines.append(f"• {m['id']} - {m['event']}")
+                send_telegram("\n".join(alert_lines))
+                
+            return jsonify({"ok": True, "listed": len(listed), "missing": len(missing), "missing_orders": missing})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)})

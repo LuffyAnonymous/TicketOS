@@ -79,24 +79,18 @@ def check_all_platforms_once(seen_keys):
                             if any(k.lower() in str(dbo.event_name).lower() for k in invalid_keywords):
                                 dbo.event_name = "Unknown Event"
                 except Exception as e:
+                    if "session expired" in str(e).lower():
+                        raise e  # Propagate to halt sync and show clean UI message
                     context.state.log(f"Failed to fetch details for new order {oid}: {e}")
 
                 # Clean text-only NEW order alert matching exactly user request
                 msg = (
-                    f"NEW ORDER DETECTED\n\n"
-                    f"Order number: {oid}\n"
-                    f"Event name: {dbo.event_name or '-'}\n"
-                    f"Customer name: {dbo.customer_name or '-'}\n"
-                    f"Mobile number: {dbo.mobile_number or '-'}\n"
-                    f"Quantity: {dbo.quantity or 1}\n"
-                    f"List price per ticket: {dbo.currency}{dbo.list_price_per_ticket or 0}\n"
-                    f"Shipping: {dbo.shipping_type or 'Unknown'} ({dbo.shipping_amount or 0})\n"
-                    f"Total amount: {dbo.currency}{dbo.total_value or 0}\n"
-                    f"Billing full name: {dbo.billing_full_name or '-'}\n"
-                    f"Billing mobile: {dbo.billing_mobile or '-'}\n"
-                    f"Raw status: {dbo.raw_status or '-'}\n"
-                    f"Sale date: {dbo.sale_date.strftime('%Y-%m-%d %H:%M:%S') if dbo.sale_date else '-'}\n"
-                    f"Source: {source}"
+                    f"🟢 NEW ORDER\n\n"
+                    f"Source: {source}\n"
+                    f"Event: {dbo.event_name or '-'}\n"
+                    f"Date: {dbo.sale_date.strftime('%Y-%m-%d %H:%M:%S') if dbo.sale_date else '-'}\n"
+                    f"Order Number: {oid}\n"
+                    f"Name: {dbo.customer_name or '-'}"
                 )
                 db.add(DBOrderAlert(platform=source, order_number=oid, event_name=dbo.event_name, alert_type="new_order", alert_message=msg))
                 send_telegram(msg); context.state.log(f"{source}: detected NEW order {oid}")

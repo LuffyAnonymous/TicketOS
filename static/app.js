@@ -348,3 +348,37 @@ window.openDrawer = openDrawer;
 window.closeDrawer = closeDrawer;
 window.toggleAccordionItem = toggleAccordionItem;
 window.toggleSourceClick = toggleSourceClick;
+
+async function checkTicketsshopOrders() {
+  const btn = document.getElementById('btnTicketsshop');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid #fff;border-radius:50%;border-top-color:transparent;animation:spin 1s linear infinite;margin-right:6px;"></span> Checking...';
+  }
+  showToast("Ticketshop scan started. This may take a few minutes...");
+  
+  try {
+    const res = await api('/api/system/check-ticketsshop', { method: 'POST' });
+    if (res.ok) {
+      if (res.message) {
+        showToast(`✅ ${res.message}`);
+      } else {
+        const msg = `Scan complete! Listed: ${res.listed}, Missing: ${res.missing}`;
+        showToast(msg);
+        if (res.missing > 0) {
+          showToast(`⚠️ Alert sent to Telegram for ${res.missing} missing orders.`);
+        }
+      }
+    } else {
+      showToast(`❌ Error: ${res.error || 'Failed to check Ticketshop'}`);
+    }
+  } catch(e) {
+    showToast(`❌ Exception: ${e.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = 'Check Listings';
+    }
+  }
+}
+window.checkTicketsshopOrders = checkTicketsshopOrders;

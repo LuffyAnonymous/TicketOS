@@ -97,20 +97,26 @@ class LiveTicketGroupAdapter(OrderPlatformAdapter):
             if not oid_txt.isdigit(): continue
             
             def get_val(lbls):
-                for i, h in enumerate(headers):
-                    if any(l in h for l in lbls) and i < len(tds): return clean_text(tds[i].get_text())
+                for l in lbls:
+                    for i, h in enumerate(headers):
+                        if h == l:
+                            if i < len(tds): return clean_text(tds[i].get_text())
+                for l in lbls:
+                    for i, h in enumerate(headers):
+                        if l in h:
+                            if i < len(tds): return clean_text(tds[i].get_text())
                 return None
 
             rows.append({
                 "id": oid_txt, 
-                "status": get_val(["status"]) or (clean_text(tds[1].get_text()) if len(tds)>1 else "Unknown"),
-                "resale_status": get_val(["resale"]) or (clean_text(tds[2].get_text()) if len(tds)>2 else None),
-                "customer": get_val(["customer", "buyer"]) or (clean_text(tds[3].get_text()) if len(tds)>3 else "-"),
-                "sale_date": get_val(["sale date"]) or (clean_text(tds[4].get_text()) if len(tds)>4 else "-"),
-                "event_date": get_val(["event date"]) or (clean_text(tds[5].get_text()) if len(tds)>5 else "-"),
-                "event": get_val(["event"]) or (clean_text(tds[6].get_text()) if len(tds)>6 else "-"),
-                "quantity": to_number(get_val(["qty", "quantity", "tickets"])) or (to_number(clean_text(tds[7].get_text())) if len(tds)>7 else 1),
-                "total_price": to_number(get_val(["total", "price", "value"])) or (to_number(clean_text(tds[8].get_text())) if len(tds)>8 else None),
+                "status": get_val(["status"]) or "Unknown",
+                "resale_status": get_val(["resale", "resale status"]),
+                "customer": get_val(["customer", "buyer", "attendees"]) or "-",
+                "sale_date": get_val(["sale date"]) or "-",
+                "event_date": get_val(["event date"]) or "-",
+                "event": get_val(["event"]) or "-",
+                "quantity": to_number(get_val(["qty", "quantity", "tickets"])) or 1,
+                "total_price": to_number(get_val(["total", "price", "value"])),
                 "currency": "£", "source": self.source_name
             })
         return rows, rows[0] if rows else None
@@ -156,14 +162,29 @@ class LiveTicketGroupAdapter(OrderPlatformAdapter):
 
     def fetch_order_details(self, order_id):
         self.ensure_logged_in()
-        url = f"https://my.liveticketgroup.com/Pages/Content/RefreshTokenRedirect.aspx?portalapiurl=https://www.liveticketgroup.com/orders/{order_id}"
+        # Bypass legacy RefreshTokenRedirect and hit the Next.js orders page directly
+        url = f"https://www.liveticketgroup.com/orders/{order_id}"
         r = self.session.get(url, timeout=30, allow_redirects=True)
         html = r.text
-        if "Exception:" in html or "Refresh token" in html or "System.Web" in html:
-            raise Exception("LiveTicketGroup session expired. Please re-login.")
+        
+        # Check if Next.js session expired and redirected to login
+        if "name=\"email\"" in html.lower() or "login" in r.url.lower() or "Exception:" in html:
+            self.login()
+            r = self.session.get(url, timeout=30, allow_redirects=True)
+            html = r.text
+            if "name=\"email\"" in html.lower() or "login" in r.url.lower() or "Exception:" in html:
+                raise Exception("LiveTicketGroup session expired. Please re-login.")
+        
+        # Unescape Next.js JSON state
+        html_clean = html.replace('\\"', '"').replace('\\\\', '\\')
+        
         try:
-            m = re.search(r'(\{"id":' + str(order_id) + r',.*?\})', html)
+            m = re.search(r'"data":(\{"id":' + str(order_id) + r'.*?"problematicOrderNotes":\[.*?\]\})', html_clean)
             if m: return self._map_ltg_json_to_db(json.loads(m.group(1)), html, url)
+            
+            # Fallback regex in case structure slightly differs
+            m2 = re.search(r'(\{"id":' + str(order_id) + r',.*?"problematicOrderNotes":\[.*?\]\})', html)
+            if m2: return self._map_ltg_json_to_db(json.loads(m2.group(1)), html, url)
         except: pass
         return self._parse_ltg_details_html(html, order_id, url)
 
@@ -181,8 +202,8 @@ class LiveTicketGroupAdapter(OrderPlatformAdapter):
             "sale_date": parse_sale_datetime(data.get("createdOn")), "raw_status": data.get("status"), "resale_status": data.get("resaleStatus"),
             "category": tinfo.get("category"), "section": tinfo.get("section") or tinfo.get("category"),
             "row_name": tinfo.get("row"), "seat_number": ", ".join(seat_names),
-            "quantity": tinfo.get("quantity"), "list_price_per_ticket": to_number(pdet.get("listPrice")),
-            "shipping_type": data.get("shippingMethod"), "shipping_amount": to_number(pdet.get("shipping")),
+            "quantity": tinfo.get("quantity"), "list_price_per_ticket": to_number(pdet.get("listPricePerTicket") or pdet.get("listPrice")),
+            "shipping_type": data.get("shippingType") or data.get("shippingMethod"), "shipping_amount": to_number(pdet.get("shipping")),
             "total_amount": to_number(pdet.get("total")), "total_value": to_number(pdet.get("total")),
             "currency": data.get("currency"), "delivery_status": data.get("shippingStatus"),
             "pod_status": "Sent" if data.get("podSubmitted") else "Pending", "broker_name": data.get("brokerName"),
