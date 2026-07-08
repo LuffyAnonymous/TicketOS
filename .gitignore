@@ -2,10 +2,13 @@
 __pycache__/
 *.pyc
 .venv/
+venv/
 
 # Runtime state / secrets
 *.json
 .env
+cookies.txt
+*.sqlite
 
 # Debug output
 debug_*.html
@@ -14,4 +17,3 @@ debug_*.png
 
 # OS
 .DS_Store
-.env

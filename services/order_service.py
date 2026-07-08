@@ -83,6 +83,17 @@ def check_all_platforms_once(seen_keys):
                         raise e  # Propagate to halt sync and show clean UI message
                     context.state.log(f"Failed to fetch details for new order {oid}: {e}")
 
+                # Excel Exporter integration for LiveTicketGroup
+                if source == "LiveTicketGroup":
+                    try:
+                        from platforms.liveticketgroup.customer_scraper import scrape_customer_details
+                        from services.excel_exporter import export_customer_details
+                        cust_details = scrape_customer_details(oid)
+                        if cust_details:
+                            export_customer_details(cust_details)
+                    except Exception as excel_err:
+                        context.state.log(f"Excel Exporter failed for order {oid}: {excel_err}")
+
                 # Clean text-only NEW order alert matching exactly user request
                 msg = (
                     f"🟢 NEW ORDER\n\n"

@@ -129,9 +129,10 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():
-    db = SessionLocal()
-    try: return db
-    except: return None
+    try:
+        return SessionLocal()
+    except Exception:
+        return None
 
 def test_db_connection():
     db = get_db()
@@ -143,6 +144,24 @@ def test_db_connection():
     finally: db.close()
 
 def init_db():
+    global engine, SessionLocal
+    # Try testing PostgreSQL first
+    is_pg_ok = False
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        is_pg_ok = True
+        db.close()
+    except Exception:
+        is_pg_ok = False
+
+    if not is_pg_ok:
+        print("\nPostgreSQL connection failed! Switching to fallback local SQLite database...")
+        db_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "order_ticket_db.sqlite")
+        sqlite_url = f"sqlite:///{db_file}"
+        engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
     Base.metadata.create_all(bind=engine)
     db = get_db()
     if db:
@@ -152,5 +171,6 @@ def init_db():
                 exists = db.query(DBPlatform).filter(DBPlatform.name == p_name).first()
                 if not exists: db.add(DBPlatform(name=p_name))
             db.commit()
-        except: pass
+        except Exception as e:
+            print(f"Error seeding platforms: {e}")
         finally: db.close()

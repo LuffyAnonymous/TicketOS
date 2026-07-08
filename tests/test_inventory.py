@@ -11,8 +11,8 @@ if __name__ == "__main__":
     is_listed = check_ticketsshop_for_order(test_event, test_order_id)
     
     if is_listed is True:
-        print(f"✅ Result: Order IS listed under Live Football Tickets!")
+        print(f"[SUCCESS] Result: Order IS listed under Live Football Tickets!")
     elif is_listed is False:
-        print(f"❌ Result: Order is NOT listed (this would trigger the Telegram warning).")
+        print(f"[FAILED] Result: Order is NOT listed (this would trigger the Telegram warning).")
     else:
-        print(f"⚠️ Result: An error occurred during the check.")
+        print(f"[WARNING] Result: An error occurred during the check.")
