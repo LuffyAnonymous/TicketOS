@@ -1,19 +1,65 @@
-# Python
+# Python environment & cache
 __pycache__/
 *.pyc
-.venv/
+*.pyo
+*.pyd
+.pytest_cache/
+.cache/
 venv/
+.venv/
+env/
+lib/
+bin/
+include/
 
-# Runtime state / secrets
-*.json
+# Environment configurations (Secrets)
 .env
-cookies.txt
-*.sqlite
+.env.local
+.env.*
 
-# Debug output
+# Local databases & state
+*.sqlite
+*.sqlite3
+*.db
+platform_states.json
+ticketsshop_state.json
+footballticketnet_state.json
+users.json
+order_details_cache.json
+order_status_state.json
+order_status_alerts.json
+combined_alert_settings.json
+sent_orders.json
+sent_footballticketnet_orders.json
+ticketsshop_check_results.json
+
+# Application logs
+*.log
+ticketos.log
+
+# Scraper cookies & session states
+cookies.txt
+*session*
+*.session
+
+# Excel Exports & Reports
+*.xlsx
+*.xls
+*.~lock.*#
+
+# Scraper debug files & screenshots
 debug_*.html
 debug_*.js
 debug_*.png
+debug_ftn_*.html
+debug_ftn_*.png
+matches_dom.html
 
-# OS
+# Editor / System files
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.bak
+temp_backup/
