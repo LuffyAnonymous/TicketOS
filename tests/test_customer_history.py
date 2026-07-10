@@ -98,7 +98,7 @@ def test_history_export():
         print("\nCleaned up test Excel file.")
 
 def test_export_script_helpers():
-    from scripts.export_ltg_customer_history import split_customer_name, format_purchase_datetime, extract_order_info
+    from services.excel_exporter import split_customer_name, format_purchase_datetime, extract_order_from_details
     from datetime import datetime
     
     assert split_customer_name("John Doe") == ("John", "Doe")
@@ -122,7 +122,7 @@ def test_export_script_helpers():
         "sale_date": "10-01-2025 14:30:00",
         "quantity": 3
     }
-    info = extract_order_info("12345", mock_details)
+    info = extract_order_from_details(mock_details)
     assert info["first_name"] == "Charlie"
     assert info["last_name"] == "Brown"
     assert info["mobile_number"] == "+447777888999"

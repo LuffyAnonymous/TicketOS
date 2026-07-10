@@ -2,7 +2,7 @@ import json
 import os
 import threading
 from datetime import datetime
-from database import get_db, DBOrder, DBPlatform, DBAppEvent
+from database import get_db, DBOrder, DBPlatform, DBAppEvent, DBSettings
 from config import SETTINGS_FILE
 
 class AppState:
@@ -14,21 +14,58 @@ class AppState:
         self.settings = self.load_settings()
 
     def log(self, msg):
+        from core.logger import get_logger
+        logger = get_logger("system")
+        logger.info(msg)
+        
         entry = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
         self.logs.append(entry)
-        if len(self.logs) > 1000: self.logs.pop(0)
-        print(entry)
+        if len(self.logs) > 1000:
+            self.logs.pop(0)
 
     def load_settings(self):
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, "r") as f:
-                try: return json.load(f)
-                except: return {}
-        return {}
+        """
+        Loads alert monitor settings from the database settings table.
+        """
+        db = get_db()
+        if not db:
+            return {}
+        try:
+            items = db.query(DBSettings).all()
+            # If DB is empty, try loading from file as a fallback
+            settings_dict = {item.key: item.value for item in items}
+            if not settings_dict and os.path.exists(SETTINGS_FILE):
+                try:
+                    with open(SETTINGS_FILE, "r") as f:
+                        settings_dict = json.load(f)
+                except:
+                    pass
+            return settings_dict
+        except Exception as e:
+            print(f"Error loading settings from database: {e}")
+            return {}
+        finally:
+            db.close()
 
     def save_settings(self):
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(self.settings, f, indent=2)
+        """
+        Saves self.settings dict to the database settings table.
+        """
+        db = get_db()
+        if not db:
+            return
+        try:
+            for k, v in self.settings.items():
+                item = db.query(DBSettings).filter(DBSettings.key == k).first()
+                if item:
+                    item.value = v
+                else:
+                    db.add(DBSettings(key=k, value=v))
+            db.commit()
+        except Exception as e:
+            print(f"Error saving settings to database: {e}")
+        finally:
+            db.close()
 
     def load_seen_orders(self):
         db = get_db()

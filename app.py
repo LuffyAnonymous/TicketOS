@@ -23,22 +23,25 @@ def create_app():
     if JWT_SECRET == "CHANGE-THIS-TO-A-LONG-RANDOM-SECRET":
         print("\n[SECURITY WARNING]: Using default JWT_SECRET! Please set the JWT_SECRET environment variable to a secure value in production.\n")
 
-    from database import init_db, test_db_connection
+    from database import init_db, test_db_connection, get_engine_type
     try:
         init_db()
         if test_db_connection():
+            engine_type = get_engine_type().upper()
             print("\n===============================")
-            print("PostgreSQL connected")
+            print(f"{engine_type} connected")
             print("===============================\n")
             context.db_connected = True
         else:
-            print("Using JSON fallback (DB connection failed)")
+            print("Database connection failed!")
             context.db_connected = False
     except Exception as e:
         print(f"Database Initialization Failed (Falling back to JSON): {e}")
     ensure_admin_user()
     context.state = AppState()
     context.platform_adapters = build_platform_adapters()
+    from services.scheduler_service import SchedulerService
+    context.scheduler = SchedulerService()
 
     register_routes(app)
     return app

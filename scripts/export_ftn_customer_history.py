@@ -9,11 +9,19 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from platforms.footballticketnet.customer_history_scraper import scrape_ftn_customer_history
+from platforms.footballticketnet import get_ftn_adapter
+from platforms.registry import build_platform_adapters
+import extensions as context
+from core.state import AppState
 
 def main():
     try:
-        orders = scrape_ftn_customer_history()
+        context.state = AppState()
+        context.platform_adapters = build_platform_adapters()
+        adapter = get_ftn_adapter()
+        if not adapter:
+            raise Exception("FootballTicketNet adapter not found.")
+        orders = adapter.get_customers()
         
         # 1. Group customers for Customer Summary
         grouped_customers = {}

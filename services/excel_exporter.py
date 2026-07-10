@@ -312,3 +312,78 @@ def export_customer_history(customers):
     Ensures 2-sheet structure: Customer Orders and Customer Summary.
     """
     export_to_excel(EXCEL_HISTORY_FILE, customers)
+
+def create_styled_workbook(sheets_data):
+    """
+    sheets_data: list of dicts:
+    [
+        {
+            "title": "Sheet Title",
+            "headers": ["Col1", "Col2", ...],
+            "rows": [ [val1, val2, ...], ... ]
+        },
+        ...
+    ]
+    Returns an openpyxl.Workbook
+    """
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    if wb.active:
+        wb.remove(wb.active)
+        
+    for sheet_info in sheets_data:
+        ws = wb.create_sheet(title=sheet_info["title"])
+        headers = sheet_info["headers"]
+        rows = sheet_info["rows"]
+        
+        header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="2F3542", end_color="2F3542", fill_type="solid")
+        cell_font = Font(name="Segoe UI", size=10)
+        border_side = Side(border_style="thin", color="CED6E0")
+        cell_border = Border(left=border_side, right=border_side, top=border_side, bottom=border_side)
+        
+        ws.append(headers)
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            
+        for r in rows:
+            ws.append(r)
+            
+        ws.freeze_panes = "A2"
+        
+        for row in range(2, ws.max_row + 1):
+            for col in range(1, ws.max_column + 1):
+                cell = ws.cell(row=row, column=col)
+                cell.font = cell_font
+                cell.border = cell_border
+                
+                val = cell.value
+                if isinstance(val, (int, float)):
+                    cell.alignment = Alignment(horizontal="right")
+                    
+        for col in ws.columns:
+            max_len = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                val_str = str(cell.value or '')
+                lines = val_str.split('\n')
+                for line in lines:
+                    if len(line) > max_len:
+                        max_len = len(line)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
+            
+    return wb
+
+def workbook_to_bytes(wb):
+    import io
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out

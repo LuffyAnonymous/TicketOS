@@ -1,5 +1,6 @@
 import time
 from playwright.sync_api import sync_playwright
+from config import TICKETSHOP_USERNAME, TICKETSHOP_PASSWORD
 
 def test():
     with sync_playwright() as p:
@@ -17,8 +18,8 @@ def test():
         page.wait_for_load_state("networkidle", timeout=15000)
         
         if "AppUserLogin" in page.url:
-            page.fill('input[type="email"]', "arvin@gmail.com")
-            page.fill('input[type="password"]', "AHSseoi38d")
+            page.fill('input[type="email"]', TICKETSHOP_USERNAME)
+            page.fill('input[type="password"]', TICKETSHOP_PASSWORD)
             page.click('button:has-text("Sign In")')
             page.wait_for_load_state("networkidle", timeout=15000)
             time.sleep(2)

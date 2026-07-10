@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <title>{{ title }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Order monitoring dashboard for ticket platforms">
+  <meta name="description" content="Operational terminal for ticket platform management">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=104">
 </head>
 <body>
@@ -13,32 +13,38 @@
 <aside class="sidebar">
   <div class="sidebar-brand">
     <div class="sidebar-logo">
-      <div class="sidebar-logo-icon">🎫</div>
+      <div class="sidebar-logo-icon">⚡</div>
       <div>
-        <div class="sidebar-logo-title">OrderHub</div>
-        <div class="sidebar-logo-sub">Dashboard</div>
+        <div class="sidebar-logo-title">TicketOS</div>
+        <div class="sidebar-logo-sub">Operations</div>
       </div>
     </div>
   </div>
 
   <nav class="sidebar-nav">
-    <div class="sidebar-section-label">Main</div>
+    <div class="sidebar-section-label">Operations</div>
     <a class="nav-item active" data-page="dashboardPage" onclick="switchPage('dashboardPage',this)">
       <span class="nav-icon">📊</span> Dashboard
     </a>
     <a class="nav-item" data-page="ordersPage" onclick="switchPage('ordersPage',this)">
-      <span class="nav-icon">🎟️</span> Orders
+      <span class="nav-icon">🎟️</span> Orders Workspace
     </a>
-    <a class="nav-item" data-page="pastEventsPage" onclick="switchPage('pastEventsPage',this)">
-      <span class="nav-icon">📅</span> Past Events
+    <a class="nav-item" data-page="customersPage" onclick="switchPage('customersPage',this)">
+      <span class="nav-icon">👥</span> Customer CRM
     </a>
-    <a class="nav-item" data-page="sourcesPage" onclick="switchPage('sourcesPage',this)">
-      <span class="nav-icon">🔌</span> Sources
+    <a class="nav-item" data-page="platformsPage" onclick="switchPage('platformsPage',this)">
+      <span class="nav-icon">🔌</span> Platform Health
+    </a>
+    <a class="nav-item" data-page="alertsPage" onclick="switchPage('alertsPage',this)">
+      <span class="nav-icon">⚠️</span> Alerts Center
+    </a>
+    <a class="nav-item" data-page="reportsPage" onclick="switchPage('reportsPage',this)">
+      <span class="nav-icon">📁</span> Reports Deck
     </a>
 
     <div class="sidebar-section-label" style="margin-top:8px;">System</div>
     <a class="nav-item" data-page="settingsPage" onclick="switchPage('settingsPage',this)">
-      <span class="nav-icon">⚙️</span> Settings
+      <span class="nav-icon">⚙️</span> Configuration
     </a>
   </nav>
 
@@ -60,247 +66,446 @@
   <!-- TOP BAR -->
   <div class="topbar">
     <div>
-      <div class="topbar-title" id="topbarTitle">Dashboard</div>
-      <div class="topbar-sub" id="topbarSub">Live order monitoring across all platforms</div>
+      <div style="display:flex; align-items:baseline; gap:8px;">
+        <div class="topbar-title" id="topbarTitle">Operations Center</div>
+        <span id="topbarLastSync" style="font-size: 11.5px; font-weight: normal; color: var(--muted); font-family: monospace;"></span>
+      </div>
+      <div class="topbar-sub" id="topbarSub">Real-time logistics and broker automation console</div>
     </div>
     <div class="topbar-right">
       <div id="botStatusPill" class="status-pill stopped">
         <span class="status-pill-dot"></span>
         <span id="botStatusText">Stopped</span>
       </div>
-      <button class="btn btn-secondary btn-sm" onclick="triggerCheckNow()" id="btnCheckNow">↻ Check Now</button>
-      <label class="toggle" title="Start/Stop bot">
+      <button class="btn btn-secondary btn-sm" onclick="triggerCheckNow()" id="btnCheckNow">↻ Sync Now</button>
+      <label class="toggle" title="Toggle active scheduler daemon">
         <input type="checkbox" id="masterToggle" onchange="toggleMasterMonitoring()">
         <span class="toggle-slider"></span>
       </label>
     </div>
   </div>
 
-  <!-- ─── DASHBOARD ──────────────────────────────────────── -->
+  <!-- ─── OPERATIONS CENTER ──────────────────────────────── -->
   <div class="content-area page active" id="dashboardPage">
 
-    <!-- Stat Cards — click to filter Orders page -->
-    <div class="stats-row">
-      <div class="stat-card gray" style="cursor:pointer" onclick="filterOrdersByStatus(null)" title="All tracked orders">
-        <div class="stat-label">Total Orders</div>
-        <div class="stat-value" id="statTotal">0</div>
-      </div>
-      <div class="stat-card blue" style="cursor:pointer" onclick="filterOrdersByStatus('pending')" title="Show pending orders">
-        <div class="stat-label">Pending</div>
-        <div class="stat-value" id="statPending">0</div>
-      </div>
-      <div class="stat-card red" style="cursor:pointer" onclick="filterOrdersByStatus('cancelled')" title="Show cancelled orders">
-        <div class="stat-label">Cancelled</div>
-        <div class="stat-value" id="statCancelled">0</div>
-      </div>
-      <div class="stat-card orange" style="cursor:pointer" onclick="filterOrdersByStatus('resold')" title="Show resold/presold orders">
-        <div class="stat-label">Resold / Presold</div>
-        <div class="stat-value" id="statResold">0</div>
-      </div>
-      <div class="stat-card green" style="cursor:pointer" onclick="filterOrdersByStatus('completed')" title="Show completed orders">
-        <div class="stat-label">Completed</div>
-        <div class="stat-value" id="statCompleted">0</div>
+    <!-- SECTION 1: System Health ─────────────────────────── -->
+    <div class="ops-section">
+      <div class="ops-section-label">System Health</div>
+      <div class="ops-health-grid" id="opsHealthGrid">
+        <!-- Rendered by renderOpsHealth() -->
+        <div class="ops-service-pill idle">
+          <div class="ops-service-name">LiveTicketGroup</div>
+          <div class="ops-service-status"><span class="ops-dot blue"></span>Loading…</div>
+          <div class="ops-service-sub">—</div>
+        </div>
+        <div class="ops-service-pill idle">
+          <div class="ops-service-name">FootballTicketNet</div>
+          <div class="ops-service-status"><span class="ops-dot blue"></span>Loading…</div>
+          <div class="ops-service-sub">—</div>
+        </div>
+        <div class="ops-service-pill idle">
+          <div class="ops-service-name">Inventory Check</div>
+          <div class="ops-service-status"><span class="ops-dot blue"></span>Loading…</div>
+          <div class="ops-service-sub">—</div>
+        </div>
+        <div class="ops-service-pill idle">
+          <div class="ops-service-name">Scheduler</div>
+          <div class="ops-service-status"><span class="ops-dot blue"></span>Loading…</div>
+          <div class="ops-service-sub">—</div>
+        </div>
+        <div class="ops-service-pill idle">
+          <div class="ops-service-name">Telegram</div>
+          <div class="ops-service-status"><span class="ops-dot blue"></span>Loading…</div>
+          <div class="ops-service-sub">—</div>
+        </div>
+        <div class="ops-service-pill ok">
+          <div class="ops-service-name">Database</div>
+          <div class="ops-service-status"><span class="ops-dot green"></span>Healthy</div>
+          <div class="ops-service-sub">SQLite connected</div>
+        </div>
       </div>
     </div>
 
-    <!-- Active Events -->
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Active Events</div>
-          <div class="card-sub">Click any row to see full order breakdown</div>
+    <!-- SECTION 2: Today ─────────────────────────────────── -->
+    <div class="ops-section">
+      <div class="ops-section-label">Today</div>
+      <div class="ops-today-bar">
+        <div class="ops-stat">
+          <div class="ops-stat-label">Orders</div>
+          <div class="ops-stat-value" id="statTodayOrders">—</div>
         </div>
-        <div class="search-bar">
-          <span>🔍</span>
-          <input type="text" id="eventSearch" placeholder="Search events…" oninput="filterEvents()">
+        <div class="ops-stat">
+          <div class="ops-stat-label">Revenue</div>
+          <div class="ops-stat-value c-green" id="statRevenue">—</div>
+        </div>
+        <div class="ops-stat clickable" onclick="filterOrdersByStatus('pending')">
+          <div class="ops-stat-label">Pending</div>
+          <div class="ops-stat-value c-orange" id="statPending">—</div>
+        </div>
+        <div class="ops-stat clickable" onclick="filterOrdersByStatus('cancelled')">
+          <div class="ops-stat-label">Cancelled</div>
+          <div class="ops-stat-value c-red" id="statCancelled">—</div>
+        </div>
+        <div class="ops-stat clickable" onclick="switchPage('alertsPage')">
+          <div class="ops-stat-label">Inventory Issues</div>
+          <div class="ops-stat-value" id="statMismatches">—</div>
+        </div>
+        <div class="ops-stat clickable" onclick="filterOrdersByStatus('completed')">
+          <div class="ops-stat-label">Completed</div>
+          <div class="ops-stat-value c-green" id="statCompleted">—</div>
         </div>
       </div>
-      <div class="card-body">
+    </div>
+
+    <!-- SECTION 3 + 4: Activity + Attention ─────────────── -->
+    <div class="ops-bottom">
+
+      <!-- Live Activity feed -->
+      <div class="ops-section" style="margin-bottom:0;">
+        <div class="ops-section-label">Live Activity</div>
+        <div class="ops-feed" id="opsActivityFeed">
+          <div class="ops-feed-item">
+            <div class="ops-feed-time">—</div>
+            <div class="ops-feed-body">
+              <div class="ops-feed-msg" style="color:var(--muted);">Loading events…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Attention Required -->
+      <div class="ops-section" style="margin-bottom:0;">
+        <div class="ops-section-label">Attention Required</div>
+        <div class="ops-attention-list" id="opsAttentionList">
+          <div class="ops-all-clear">✓ All systems healthy</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ─── ORDERS WORKSPACE ───────────────────────────────── -->
+
+  <div class="content-area page" id="ordersPage">
+    <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div>
+        <div style="display:flex; align-items:center;">
+          <div class="topbar-title">Orders Workspace</div>
+          <span id="activeFiltersBadge" class="filter-count-badge" style="display:none;">0</span>
+        </div>
+        <div class="topbar-sub">Unified workspace for order tracking and audit trails</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="refreshOrdersTable()">↻ Refresh</button>
+        <button class="btn btn-primary btn-sm" onclick="exportOrdersExcel()">📥 Export Current Results</button>
+      </div>
+    </div>
+
+    <!-- Redesigned Filters Row -->
+    <div class="card" style="margin-bottom:10px;">
+      <div class="card-body" style="padding: 10px 14px;">
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px; align-items:end;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Global Search</label>
+            <input type="text" id="filterGlobalQuery" placeholder="Order ID, event, customer..." class="form-input" style="height:28px; padding:2px 8px;" oninput="applyOrdersFiltersDebounced()">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Platform</label>
+            <select id="filterPlatform" onchange="applyOrdersFilters()" class="form-input form-select" style="height:28px; padding:2px 8px;">
+              <option value="">All Platforms</option>
+              <option value="LiveTicketGroup">LiveTicketGroup</option>
+              <option value="FootballTicketNet">FootballTicketNet</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Status</label>
+            <select id="filterStatus" onchange="applyOrdersFilters()" class="form-input form-select" style="height:28px; padding:2px 8px;">
+              <option value="">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Start Date</label>
+            <input type="date" id="filterStartDate" onchange="applyOrdersFilters()" class="form-input" style="height:28px; padding:2px 8px;">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">End Date</label>
+            <input type="date" id="filterEndDate" onchange="applyOrdersFilters()" class="form-input" style="height:28px; padding:2px 8px;">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Event Name</label>
+            <input type="text" id="filterEvent" placeholder="Search event..." class="form-input" style="height:28px; padding:2px 8px;" oninput="applyOrdersFiltersDebounced()">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Customer details</label>
+            <input type="text" id="filterCustomer" placeholder="Search name/email/phone..." class="form-input" style="height:28px; padding:2px 8px;" oninput="applyOrdersFiltersDebounced()">
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-secondary btn-sm" onclick="toggleAdvancedLookupPanel()" style="height:28px; flex:1; white-space:nowrap;">🔍 Lookup Tool</button>
+            <button class="btn btn-secondary btn-sm" onclick="resetOrdersFilters()" style="height:28px;">Reset</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Advanced Search / Scraper Lookup (Moved from Dashboard) -->
+    <div id="advancedLookupPanel" class="lookup-panel hidden">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid var(--border); padding-bottom:6px;">
+        <span style="font-size:12px; font-weight:700; color:#fff;">⚡ Real-time Platform Order Lookup Scanner</span>
+        <button class="btn btn-secondary btn-xs" onclick="toggleAdvancedLookupPanel()">✕ Close</button>
+      </div>
+      <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-bottom:8px;">
+        <div class="form-group" style="margin:0; min-width:140px;">
+          <label class="form-label">Platform Adapter</label>
+          <select id="lookupPlatform" class="form-input form-select" style="height:28px; padding:2px 8px;">
+            <option value="LiveTicketGroup">LiveTicketGroup</option>
+            <option value="FootballTicketNet">FootballTicketNet</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0; flex:1; min-width:180px;">
+          <label class="form-label">Event Name Matching</label>
+          <input type="text" id="lookupEvent" placeholder="e.g. Manchester United vs Liverpool" class="form-input" style="height:28px; padding:2px 8px;">
+        </div>
+        <button class="btn btn-primary btn-sm" id="btnRunLookup" onclick="runAdvancedPlatformLookup()" style="height:28px;">Run Platform Scan</button>
+      </div>
+      <div id="lookupResultsWrap" class="hidden" style="margin-top:8px;">
+        <div class="table-wrap" style="max-height: 180px;">
+          <table style="font-size:11px;">
+            <thead>
+              <tr>
+                <th>Order Number</th>
+                <th>Customer Name</th>
+                <th>Sale Date</th>
+                <th>Platform Status</th>
+              </tr>
+            </thead>
+            <tbody id="lookupResultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Compact Table View of Orders -->
+    <div class="card" style="margin-bottom: 0;">
+      <div class="card-body" style="padding:0;">
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Event Name</th>
-                <th>Source</th>
-                <th>Orders</th>
-                <th>Tickets</th>
-                <th>Total Value</th>
-                <th>Status</th>
+                <th class="sortable" id="th-order_number" onclick="handleSortClick('order_number')">Order ID</th>
+                <th>Platform</th>
+                <th>Customer</th>
+                <th>Event / Venue Details</th>
+                <th class="sortable" id="th-quantity" onclick="handleSortClick('quantity')">Qty</th>
+                <th class="sortable" id="th-total_value" onclick="handleSortClick('total_value')">Value</th>
+                <th>Profit</th>
+                <th class="sortable" id="th-normalized_status" onclick="handleSortClick('normalized_status')">Status</th>
+                <th class="sortable" id="th-sale_date" onclick="handleSortClick('sale_date')">Sale Date</th>
+                <th class="sortable" id="th-last_updated" onclick="handleSortClick('last_updated')">Last Updated</th>
               </tr>
             </thead>
-            <tbody id="activeEventsBody">
-              <tr><td colspan="6"><div class="empty-state"><div class="empty-icon">📭</div><div>No events yet</div></div></td></tr>
+            <tbody id="ordersWorkspaceTableBody">
+              <tr><td colspan="10"><div class="empty-state">Loading orders database...</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- Pagination controls -->
+        <div class="pagination-wrap">
+          <div>
+            Showing <span id="pagStart">0</span> - <span id="pagEnd">0</span> of <span id="pagTotal">0</span> orders
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="color:var(--muted); font-size:11px;">Show:</span>
+              <select id="pagPerPage" onchange="changePerPageLimit()" class="form-input form-select" style="height:24px; padding:0 4px; font-size:11px; width:60px;">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+            <div class="pagination-buttons">
+              <button class="btn btn-secondary btn-xs" id="btnPrevPage" onclick="ordersPrevPage()">◀ Prev</button>
+              <button class="btn btn-secondary btn-xs" id="btnNextPage" onclick="ordersNextPage()">Next ▶</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── CUSTOMER CRM ───────────────────────────────────── -->
+  <div class="content-area page" id="customersPage">
+    <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div>
+        <div class="topbar-title">Customer CRM</div>
+        <div class="topbar-sub">Operational client directory and purchase log analytics</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div class="search-bar">
+          <span>🔍</span>
+          <input type="text" id="crmSearch" placeholder="Search profiles..." oninput="refreshCustomersList()">
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="exportCustomersExcel()">📥 Export CRM</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body" style="padding:0;">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Client Name</th>
+                <th>Email Address</th>
+                <th>Phone Number</th>
+                <th>Source Platform</th>
+                <th>Total Orders</th>
+                <th>Lifetime Spend</th>
+                <th>Last Order Date</th>
+                <th>Favorite Event</th>
+              </tr>
+            </thead>
+            <tbody id="crmTableBody">
+              <tr><td colspan="8"><div class="empty-state"><div class="empty-icon">👥</div><div>Loading Customer profiles...</div></div></td></tr>
             </tbody>
           </table>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- Order Status Search — moved to Dashboard -->
-    <div class="card">
+  <!-- ─── PLATFORM HEALTH & CONTROLS ─────────────────────── -->
+  <div class="content-area page" id="platformsPage">
+    <div class="section-header" style="margin-bottom:12px;">
+      <div>
+        <div class="topbar-title">Platform Integrations</div>
+        <div class="topbar-sub">Enable or disable each platform independently. Disabled platforms are fully skipped during sync.</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="triggerCheckNow()" id="btnCheckNow">↻ Sync Now</button>
+    </div>
+
+    <!-- Dynamic platform cards injected by JS -->
+    <div id="platformCardsContainer" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:16px; margin-bottom:16px;">
+      <div class="empty-state">Loading platform data…</div>
+    </div>
+
+    <!-- Ticketshop Verification card (static — not a sync adapter) -->
+    <div class="card" id="ticketshopVerifyCard">
       <div class="card-header">
         <div>
-          <div class="card-title">Order Status Search</div>
-          <div class="card-sub">Check and fetch order statuses for a specific event across platforms</div>
+          <div class="card-title">🛒 Ticketshop Listings Scanner</div>
+          <div class="card-sub">Manual inventory verification against active LTG orders</div>
         </div>
-      </div>
-      <div class="card-body" style="padding:16px 20px;">
-        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
-          <div class="form-group" style="margin:0;flex:0 0 200px;">
-            <label class="form-label">Platform</label>
-            <select id="statusPlatformSelect" class="form-input form-select">
-              <option value="LiveTicketGroup">LiveTicketGroup</option>
-              <option value="FootballTicketNet">FootballTicketNet</option>
-              <option value="Fanpass">Fanpass</option>
-              <option value="Tixstock">Tixstock</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin:0;flex:1;min-width:220px;">
-            <label class="form-label">Event Name</label>
-            <input type="text" id="statusEventInput" class="form-input" placeholder="e.g. Arsenal vs Chelsea">
-          </div>
-          <button class="btn btn-primary" onclick="checkOrderStatus()" id="btnCheckStatus">Check Status</button>
-        </div>
-        <div id="statusResults" class="hidden" style="margin-top:16px;">
-          <div id="statusResultsFilters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Order ID</th>
-                  <th>Customer</th>
-                  <th>Sale Date</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="statusResultsBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- ─── ORDERS ─────────────────────────────────────────── -->
-  <div class="content-area page" id="ordersPage">
-    <div class="section-header">
-      <div>
-        <div class="section-title" id="ordersPageTitle">Orders by Event</div>
-        <div class="section-sub" id="ordersPageSub">Expand an event to view all orders</div>
-      </div>
-      <div id="ordersFilterBadge" style="display:none;align-items:center;gap:8px;">
-        <span style="font-size:13px;color:var(--muted)">Filtered by:</span>
-        <span id="ordersFilterLabel" class="badge badge-blue" style="text-transform:capitalize"></span>
-        <button class="btn btn-secondary btn-sm" onclick="clearOrdersFilter()">✕ Clear</button>
-      </div>
-    </div>
-    <div id="ordersAccordion">
-      <div class="empty-state">
-        <div class="empty-icon">🗂️</div>
-        <div class="empty-title">No Orders Yet</div>
-        <div class="empty-sub">Start monitoring to see orders appear here</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ─── PAST EVENTS ───────────────────────────────────── -->
-  <div class="content-area page" id="pastEventsPage">
-    <div class="section-header">
-      <div>
-        <div class="section-title">Past Events</div>
-        <div class="section-sub">Historical data for completed events</div>
-      </div>
-    </div>
-    <div id="pastEventsContainer">
-      <div class="empty-state">
-        <div class="empty-icon">📅</div>
-        <div class="empty-title">No Past Events</div>
-        <div class="empty-sub">Old events will automatically move here once completed</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ─── SOURCES ────────────────────────────────────────── -->
-  <div class="content-area page" id="sourcesPage">
-    <div class="section-header">
-      <div>
-        <div class="section-title">Platform Sources</div>
-        <div class="section-sub">Enable or disable each platform independently</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">Monitoring Controls</div>
-        <div class="card-sub">Changes take effect on the next check cycle</div>
+        <button class="btn btn-primary btn-sm" onclick="checkTicketsshopOrders()" id="btnTicketsshop">Scan Listings Now</button>
       </div>
       <div class="card-body">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Source</th>
-                <th>Description</th>
-                <th>Type</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody id="sourcesTableBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- Ticketshop Manual Verification -->
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Ticketshop Manual Verification</div>
-          <div class="card-sub">Verify that all LTG orders are listed on Ticketshop</div>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="checkTicketsshopOrders()" id="btnTicketsshop">
-          Check Listings
-        </button>
-      </div>
-      <div class="card-body" style="padding:16px 20px;">
-        <p style="font-size:13px;color:var(--muted);">
-          Scans Ticketshop for all active LiveTicketGroup orders.
-          Sends a Telegram alert for any missing or delisted orders.
+        <p style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+          Performs inventory match checks against active listings database. If any order is sold but not uploaded, or missing, a Telegram alert is immediately fired.
         </p>
+        <div class="summary-stat-list">
+          <div class="summary-stat-row">
+            <span class="summary-stat-label">Monitor State</span>
+            <span class="summary-stat-value" id="ticketshopMonitorState">Enabled</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- ─── SETTINGS ───────────────────────────────────────── -->
+
+  <!-- ─── ALERTS CENTER ──────────────────────────────────── -->
+  <div class="content-area page" id="alertsPage">
+    <div class="section-header" style="margin-bottom:12px;">
+      <div class="topbar-title">System Alerts Center</div>
+      <div class="topbar-sub">Unresolved scraper warnings, login failures, and inventory anomalies</div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="alerts-list" id="alertsListContainer">
+          <div class="empty-state">Loading active alert reports...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── REPORTS DECK ───────────────────────────────────── -->
+  <div class="content-area page" id="reportsPage">
+    <div class="section-header" style="margin-bottom:12px;">
+      <div class="topbar-title">Analytical Reports Deck</div>
+      <div class="topbar-sub">Download formatted Excel summaries for accounting and logistics management</div>
+    </div>
+
+    <div class="dashboard-layout" style="grid-template-columns: 1fr 1fr;">
+      
+      <div class="card">
+        <div class="card-header"><div class="card-title">Sales & Revenue Reports</div></div>
+        <div class="card-body" style="padding:12px;">
+          <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">Generates daily metrics, ticket quantity summaries, and platform billing values.</p>
+          <button class="btn btn-primary" onclick="exportRevenueExcel()" style="width:100%;">📊 Download Revenue Report (.xlsx)</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">Platform Performance Reports</div></div>
+        <div class="card-body" style="padding:12px;">
+          <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">Exports totals by platform sources, synchronizations, and last error frequencies.</p>
+          <button class="btn btn-primary" onclick="exportPlatformsExcel()" style="width:100%;">🔌 Download Performance Report (.xlsx)</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">Client Profiles CRM Export</div></div>
+        <div class="card-body" style="padding:12px;">
+          <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">Aggregates all client lifetime spends, emails, mobile numbers, and favorite clubs.</p>
+          <button class="btn btn-primary" onclick="exportCustomersExcel()" style="width:100%;">👥 Download Customer CRM Export (.xlsx)</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">Orders Logs Export</div></div>
+        <div class="card-body" style="padding:12px;">
+          <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">Exports complete details list of all parsed order rows respecting active filter states.</p>
+          <button class="btn btn-primary" onclick="exportOrdersExcel()" style="width:100%;">🎟️ Download Orders List Export (.xlsx)</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── CONFIGURATION (Settings) ───────────────────────── -->
   <div class="content-area page" id="settingsPage">
     <div class="two-col">
       <!-- Bot Settings -->
       <div class="card">
-        <div class="card-header"><div class="card-title">Bot Settings</div></div>
-        <div class="card-body" style="padding:20px;">
+        <div class="card-header"><div class="card-title">Daemon Settings</div></div>
+        <div class="card-body" style="padding:16px;">
           <div class="form-group">
             <label class="form-label" for="settingsInterval">Check Interval (minutes)</label>
-            <input type="number" id="settingsInterval" class="form-input" min="1" value="30" style="max-width:160px;">
+            <input type="number" id="settingsInterval" class="form-input" min="1" value="30" style="max-width:120px; height:32px;">
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--border);">
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-top:1px solid var(--border);">
             <div>
-              <div style="font-size:13.5px;font-weight:600;">Sleep Window (12AM–5AM)</div>
-              <div style="font-size:12px;color:var(--muted);">Pause monitoring overnight</div>
+              <div style="font-size:13px; font-weight:600; color:#fff;">Sleep Window (12AM–5AM)</div>
+              <div style="font-size:11px; color:var(--muted);">Pause scrapers overnight</div>
             </div>
             <label class="toggle">
               <input type="checkbox" id="sleepToggle" onchange="toggleSetting('sleep_window_enabled')">
               <span class="toggle-slider"></span>
             </label>
           </div>
-          <button class="btn btn-primary" onclick="saveIntervalSettings()" style="margin-top:14px;width:100%;">
+          <button class="btn btn-primary" onclick="saveIntervalSettings()" style="margin-top:10px; width:100%; height:32px;">
             Save Settings
           </button>
-          <button class="btn btn-secondary" style="margin-top:8px;width:100%;"
-            onclick="api('/api/test-order-telegram',{method:'POST'}).then(()=>showToast('Test alert sent ✅')).catch(e=>showToast('Failed: '+e.message))">
+          <button class="btn btn-secondary" style="margin-top:6px; width:100%; height:32px;"
+            onclick="api('/api/test-order-telegram', {method:'POST'}).then(()=>showToast('Test alert sent ✅')).catch(e=>showToast('Failed: '+e.message))">
             Send Test Telegram Alert
           </button>
-          <button class="btn btn-secondary" style="margin-top:8px;width:100%;background-color:#fee2e2;color:#b91c1c;border-color:#fecaca;"
+          <button class="btn btn-secondary" style="margin-top:6px; width:100%; height:32px; background-color:#fee2e2; color:#b91c1c; border-color:#fecaca;"
             onclick="if(confirm('Are you sure you want to completely reset the system? This will delete all orders and history.')) { api('/api/system/reset',{method:'POST'}).then(()=>{ showToast('System Reset Complete ✅'); setTimeout(()=>location.reload(), 1500); }).catch(e=>showToast('Failed: '+e.message)); }">
             Reset Entire System
           </button>
@@ -310,30 +515,31 @@
       <!-- Add Member -->
       <div class="card">
         <div class="card-header"><div class="card-title">Add Member</div></div>
-        <div class="card-body" style="padding:20px;">
+        <div class="card-body" style="padding:16px;">
           <div class="form-group">
             <label class="form-label">Username</label>
-            <input id="newUsername" class="form-input" type="text" placeholder="Enter username">
+            <input id="newUsername" class="form-input" type="text" placeholder="Enter username" style="height:32px;">
           </div>
           <div class="form-group">
             <label class="form-label">Password</label>
-            <input id="newPassword" class="form-input" type="password" placeholder="Enter password">
+            <input id="newPassword" class="form-input" type="password" placeholder="Enter password" style="height:32px;">
           </div>
           <div class="form-group">
             <label class="form-label">Role</label>
-            <select id="newRole" class="form-input form-select">
-              <option value="member">Member</option>
+            <select id="newRole" class="form-input form-select" style="height:32px; padding:4px 8px;">
               <option value="admin">Admin</option>
+              <option value="staff" selected>Staff</option>
+              <option value="viewer">Viewer</option>
             </select>
           </div>
-          <button class="btn btn-primary" onclick="addMember()" style="width:100%;">Add Member</button>
+          <button class="btn btn-primary" onclick="addMember()" style="width:100%; height:32px;">Add Member</button>
         </div>
       </div>
 
       <!-- Members List -->
       <div class="card" style="grid-column:1/-1;">
         <div class="card-header"><div class="card-title">Members</div></div>
-        <div class="card-body">
+        <div class="card-body" style="padding:0;">
           <div class="table-wrap">
             <table>
               <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
@@ -348,7 +554,7 @@
 </main>
 
 <!-- ═══ ORDER DRAWER ══════════════════════════════════════ -->
-<div class="drawer-backdrop hidden" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<div class="drawer-backdrop hidden" id="drawerBackdrop" onclick="closeDrawer(); closeCustomerDrawer();"></div>
 <aside class="order-drawer hidden" id="orderDrawer">
   <div class="drawer-header">
     <div>
@@ -363,9 +569,24 @@
   </div>
 </aside>
 
+<!-- ═══ CUSTOMER DRAWER ══════════════════════════════════ -->
+<aside class="customer-drawer hidden" id="customerDrawer">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-kicker">Customer profile</div>
+      <div class="drawer-title" id="customerDrawerTitle">Customer Details</div>
+      <div class="drawer-sub" id="customerDrawerSub">—</div>
+    </div>
+    <button class="drawer-close" onclick="closeCustomerDrawer()">✕</button>
+  </div>
+  <div class="drawer-body" id="customerDrawerBody">
+    <div class="empty-state"><div class="empty-icon">👥</div><div>Select a customer</div></div>
+  </div>
+</aside>
+
 <!-- TOAST -->
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="{{ url_for('static', filename='app.js') }}?v=104"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=105"></script>
 </body>
 </html>

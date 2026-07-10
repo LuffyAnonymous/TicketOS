@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=MySecurePassword123!
+      - JWT_SECRET=ab4382c918ef03d8d9b1a03f90d1f76c35c82de9e01f09e86c0c24ea0210fa2e
+      - TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN
+      - TELEGRAM_CHAT_ID=YOUR_CHAT_ID
+      - LTG_USERNAME=YOUR_LTG_USER
+      - LTG_PASSWORD=YOUR_LTG_PASS
+      - FTN_USERNAME=YOUR_FTN_USER
+      - FTN_PASSWORD=YOUR_FTN_PASS
+      # Set DATABASE_URL to use PostgreSQL, otherwise defaults to SQLite in persistent volume
+      # - DATABASE_URL=postgresql://postgres:postgres@db:5432/ticketos
+    volumes:
+      - ticketos-data:/app
+    restart: always
+
+volumes:
+  ticketos-data:

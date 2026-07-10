@@ -1,5 +1,6 @@
 import time
 from playwright.sync_api import sync_playwright
+from config import TICKETSHOP_USERNAME, TICKETSHOP_PASSWORD
 
 def check_ticketsshop_for_order(event_name, order_id):
     """
@@ -7,8 +8,8 @@ def check_ticketsshop_for_order(event_name, order_id):
     specifically for the broker 'Live Football Tickets'.
     Returns True if listed, False if not, and None if an error occurred.
     """
-    username = "arvin@gmail.com"
-    password = "AHSseoi38d"
+    username = TICKETSHOP_USERNAME
+    password = TICKETSHOP_PASSWORD
     
     try:
         with sync_playwright() as p:
@@ -91,8 +92,8 @@ def check_ticketsshop_bulk(orders_to_check):
     """
     listed = []
     missing = []
-    username = "arvin@gmail.com"
-    password = "AHSseoi38d"
+    username = TICKETSHOP_USERNAME
+    password = TICKETSHOP_PASSWORD
     
     try:
         with sync_playwright() as p:

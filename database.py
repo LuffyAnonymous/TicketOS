@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, Numeric, UniqueConstraint, ForeignKey, text, or_, JSON
 from sqlalchemy.ext.declarative import declarative_base
@@ -6,6 +7,26 @@ from sqlalchemy.orm import sessionmaker, relationship
 from config import DATABASE_URL
 
 Base = declarative_base()
+
+DB_ENGINE_TYPE = "sqlite"
+
+def get_engine_type():
+    global DB_ENGINE_TYPE
+    return DB_ENGINE_TYPE
+
+class DBUser(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+    username = Column(String(100), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(50), default='member')
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+class DBSettings(Base):
+    __tablename__ = 'settings'
+    key = Column(String(100), primary_key=True)
+    value = Column(JSON)
 
 class DBPlatform(Base):
     __tablename__ = 'platforms'
@@ -144,33 +165,81 @@ def test_db_connection():
     finally: db.close()
 
 def init_db():
-    global engine, SessionLocal
-    # Try testing PostgreSQL first
-    is_pg_ok = False
+    global engine, SessionLocal, DB_ENGINE_TYPE
+    
+    is_pg = False
+    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+        is_pg = True
+        
+    is_connected = False
     try:
-        db = SessionLocal()
-        db.execute(text("SELECT 1"))
-        is_pg_ok = True
-        db.close()
-    except Exception:
-        is_pg_ok = False
+        if DATABASE_URL:
+            temp_engine = create_engine(DATABASE_URL)
+            with temp_engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            is_connected = True
+            engine = temp_engine
+            SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+            if is_pg:
+                DB_ENGINE_TYPE = "postgresql"
+            else:
+                DB_ENGINE_TYPE = "sqlite"
+    except Exception as e:
+        is_connected = False
+        print(f"Database connection to {DATABASE_URL} failed: {e}")
 
-    if not is_pg_ok:
-        print("\nPostgreSQL connection failed! Switching to fallback local SQLite database...")
+    if not is_connected:
+        print("\nSwitching to fallback local SQLite database...")
         db_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "order_ticket_db.sqlite")
         sqlite_url = f"sqlite:///{db_file}"
         engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        DB_ENGINE_TYPE = "sqlite"
 
     Base.metadata.create_all(bind=engine)
+    
     db = get_db()
     if db:
         try:
             # Add initial platforms if missing
             for p_name in ["LiveTicketGroup", "FootballTicketNet", "Ticketshop", "Fanpass", "Tixstock"]:
                 exists = db.query(DBPlatform).filter(DBPlatform.name == p_name).first()
-                if not exists: db.add(DBPlatform(name=p_name))
+                if not exists:
+                    db.add(DBPlatform(name=p_name))
             db.commit()
+            
+            # Migrate existing users.json to DB
+            from config import USERS_FILE
+            from core.storage import load_json_file
+            if os.path.exists(USERS_FILE):
+                users_data = load_json_file(USERS_FILE, [])
+                if users_data:
+                    for u in users_data:
+                        exists = db.query(DBUser).filter(DBUser.username == u.get("username")).first()
+                        if not exists:
+                            db.add(DBUser(
+                                username=u.get("username"),
+                                password_hash=u.get("password_hash"),
+                                role=u.get("role", "member"),
+                                is_active=u.get("is_active", True)
+                            ))
+                    db.commit()
+                    
+            # Migrate existing combined_alert_settings.json to DB
+            from config import SETTINGS_FILE
+            if os.path.exists(SETTINGS_FILE):
+                try:
+                    with open(SETTINGS_FILE, "r") as f:
+                        settings_data = json.load(f)
+                    if settings_data and isinstance(settings_data, dict):
+                        for k, v in settings_data.items():
+                            exists = db.query(DBSettings).filter(DBSettings.key == k).first()
+                            if not exists:
+                                db.add(DBSettings(key=k, value=v))
+                        db.commit()
+                except Exception as se:
+                    print(f"Error migrating settings: {se}")
         except Exception as e:
-            print(f"Error seeding platforms: {e}")
-        finally: db.close()
+            print(f"Error seeding platforms or migrating files: {e}")
+        finally:
+            db.close()

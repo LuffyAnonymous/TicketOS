@@ -4,7 +4,11 @@ TicketOS is a central business intelligence and monitoring dashboard for managin
 
 ---
 
+<<<<<<< HEAD
 ##  How to Run Locally
+=======
+## 🚀 How to Run Locally
+>>>>>>> 91bf84a (feat: redesign operations dashboard and improve order workspace)
 
 ### Prerequisites
 * Python 3.10+
@@ -40,7 +44,11 @@ Open `http://127.0.0.1:5000` in your web browser and log in with your configured
 
 ---
 
+<<<<<<< HEAD
 ##  Running with Docker
+=======
+## 🐳 Running with Docker
+>>>>>>> 91bf84a (feat: redesign operations dashboard and improve order workspace)
 
 Docker simplifies VPS deployment by packaging all Chromium and library dependencies automatically.
 
@@ -70,7 +78,11 @@ This boots the app on port `5000` and creates a persistent volume `ticketos-data
 
 ---
 
+<<<<<<< HEAD
 ## Production Readiness Checklist
+=======
+## 🔒 Production Readiness Checklist
+>>>>>>> 91bf84a (feat: redesign operations dashboard and improve order workspace)
 1. **Password Enforcement**: Ensure `ADMIN_PASSWORD` is changed from `admin123`.
 2. **Secrets Rotation**: Set a cryptographically secure value (e.g. 64 hex characters) for `JWT_SECRET` in production.
 3. **Telegram Channel**: Verify that your Telegram bot is added to your target channel/group and has messaging permissions.
@@ -78,7 +90,11 @@ This boots the app on port `5000` and creates a persistent volume `ticketos-data
 
 ---
 
+<<<<<<< HEAD
 ##  Database Backups
+=======
+## 💾 Database Backups
+>>>>>>> 91bf84a (feat: redesign operations dashboard and improve order workspace)
 
 ### 1. SQLite Backup (Default Local Deployment)
 SQLite stores all data in a single file `order_ticket_db.sqlite`. To back it up, run a cron job to copy the file safely:

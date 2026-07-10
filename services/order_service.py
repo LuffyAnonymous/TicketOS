@@ -4,22 +4,46 @@ from datetime import datetime
 import extensions as context
 from core.helpers import clean_text, parse_sale_datetime, normalize_event_name, standardize_status, to_number, parse_event_datetime
 from services.telegram_service import send_telegram
-from database import get_db, DBOrder, DBOrderAlert, DBEvent
+from database import get_db, DBOrder, DBOrderAlert, DBEvent, DBPlatform
+from core.logger import get_logger, send_error_alert
+from core.errors import PlatformError, PlatformLoginError, PlatformBlockedError, PlatformLayoutError, PlatformTimeoutError, PlatformMissingDataError
+
+logger = get_logger("order_sync")
 
 def check_all_platforms_once(seen_keys):
     all_rows = []
-    mon = context.state.settings
     errors = []
+    db_check = get_db()
+    enabled_platforms = set()
+    if db_check:
+        try:
+            for p in db_check.query(DBPlatform).all():
+                if p.is_enabled:
+                    enabled_platforms.add(p.name)
+        finally:
+            db_check.close()
+    else:
+        # Fallback: treat all as enabled if DB unreachable
+        enabled_platforms = {a.source_name for a in context.platform_adapters}
+
     for adapter in context.platform_adapters:
         try:
-            if not mon.get(f"monitor_{adapter.source_name.lower()}", True): continue
+            if adapter.source_name not in enabled_platforms:
+                logger.info(f"{adapter.source_name}: DISABLED — skipping sync")
+                continue
             rows, _ = adapter.fetch_orders()
             all_rows.extend(rows)
-            context.state.log(f"{adapter.source_name}: scraped {len(rows)} orders")
+            logger.info(f"{adapter.source_name}: scraped {len(rows)} orders")
         except Exception as e:
-            err_msg = str(e)
-            context.state.log(f"{adapter.source_name} scraper error: {err_msg}")
-            errors.append(f"{adapter.source_name}: {err_msg}")
+            logger.error(f"{adapter.source_name} scraper error: {e}", exc_info=True)
+            
+            # Send Telegram alert for serious errors
+            if isinstance(e, (PlatformLoginError, PlatformBlockedError, PlatformLayoutError)):
+                send_error_alert(type(e).__name__, f"{adapter.source_name} - {str(e)}")
+            elif not isinstance(e, (ValueError, NotImplementedError)):
+                send_error_alert("UnexpectedScraperError", f"{adapter.source_name} - {str(e)}")
+                
+            errors.append(f"{adapter.source_name}: {str(e)}")
 
     db = get_db(); current_keys = set(); now = datetime.now()
     if not db: return errors
@@ -45,7 +69,7 @@ def check_all_platforms_once(seen_keys):
             # Validation: Prevent saving backend errors as event names
             invalid_keywords = ["Exception", "Refresh token", "System.Web", "TokenManager", "stack trace"]
             if any(k.lower() in ev_name.lower() for k in invalid_keywords):
-                context.state.log(f"Invalid event name detected (contains error text) for order {oid}. Skipping.")
+                logger.warning(f"Invalid event name detected (contains error text) for order {oid}. Skipping.")
                 continue
 
             dbo = db.query(DBOrder).filter(DBOrder.platform == source, DBOrder.order_number == oid).first()
@@ -62,6 +86,7 @@ def check_all_platforms_once(seen_keys):
                 )
                 db.add(dbo); db.flush()
                 
+                details = None
                 # Fetch full details immediately for the Telegram alert
                 try:
                     adapter = next((a for a in context.platform_adapters if a.source_name == source), None)
@@ -81,30 +106,29 @@ def check_all_platforms_once(seen_keys):
                 except Exception as e:
                     if "session expired" in str(e).lower():
                         raise e  # Propagate to halt sync and show clean UI message
-                    context.state.log(f"Failed to fetch details for new order {oid}: {e}")
+                    logger.error(f"Failed to fetch details for new order {oid}: {e}", exc_info=True)
 
                 # Excel Exporter integration for LiveTicketGroup
-                if source == "LiveTicketGroup":
+                if source == "LiveTicketGroup" and details:
                     try:
-                        from platforms.liveticketgroup.customer_scraper import scrape_customer_details
                         from services.excel_exporter import export_customer_details
-                        cust_details = scrape_customer_details(oid)
-                        if cust_details:
-                            export_customer_details(cust_details)
+                        export_customer_details(details)
                     except Exception as excel_err:
-                        context.state.log(f"Excel Exporter failed for order {oid}: {excel_err}")
+                        logger.error(f"Excel Exporter failed for order {oid}: {excel_err}", exc_info=True)
 
-                # Clean text-only NEW order alert matching exactly user request
+                # New order alert — exact fields requested
+                _price = f"{dbo.currency or '£'}{dbo.total_value:,.2f}" if dbo.total_value is not None else "£0.00"
                 msg = (
-                    f"🟢 NEW ORDER\n\n"
-                    f"Source: {source}\n"
-                    f"Event: {dbo.event_name or '-'}\n"
-                    f"Date: {dbo.sale_date.strftime('%Y-%m-%d %H:%M:%S') if dbo.sale_date else '-'}\n"
-                    f"Order Number: {oid}\n"
-                    f"Name: {dbo.customer_name or '-'}"
+                    "🟢 New Order\n\n"
+                    f"Date: {dbo.sale_date.strftime('%Y-%m-%d %H:%M') if dbo.sale_date else 'N/A'}\n"
+                    f"Platform: {source or 'N/A'}\n"
+                    f"Event: {dbo.event_name or 'N/A'}\n"
+                    f"Name: {dbo.customer_name or 'N/A'}\n"
+                    f"Quantity: {dbo.quantity if dbo.quantity is not None else 'N/A'}\n"
+                    f"Price: {_price}"
                 )
                 db.add(DBOrderAlert(platform=source, order_number=oid, event_name=dbo.event_name, alert_type="new_order", alert_message=msg))
-                send_telegram(msg); context.state.log(f"{source}: detected NEW order {oid}")
+                send_telegram(msg); logger.info(f"{source}: detected NEW order {oid}")
             else:
                 if ev_name: dbo.event_name = ev_name
                 dbo.raw_status = r.get("status"); dbo.resale_status = r.get("resale_status")
@@ -130,11 +154,11 @@ def check_all_platforms_once(seen_keys):
                 dbo.is_visible_on_platform = False
                 if dbo.normalized_status not in ("completed", "cancelled", "resold"):
                     dbo.normalized_status = "completed"
-                    context.state.log(f"Platform Order {dbo.order_number} disappeared → marked COMPLETED")
+                    logger.info(f"Platform Order {dbo.order_number} disappeared → marked COMPLETED")
         
         db.commit()
     except Exception as e:
-        db.rollback(); context.state.log(f"Sync Error: {e}")
+        db.rollback(); logger.error(f"Sync Error: {e}", exc_info=True)
         errors.append(f"Database Error: {str(e)}")
     finally:
         db.close()

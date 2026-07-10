@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://username:password@localhost:5432/order_ticket_db")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # =========================================================
 # PLATFORM CONFIG
@@ -45,12 +45,42 @@ ORDER_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 ORDER_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
-APP_TITLE = "OrderHub"
-JWT_SECRET = os.environ.get("JWT_SECRET", "CHANGE-THIS-TO-A-LONG-RANDOM-SECRET")
+TICKETSHOP_USERNAME = os.environ.get("TICKETSHOP_USERNAME", "")
+TICKETSHOP_PASSWORD = os.environ.get("TICKETSHOP_PASSWORD", "")
+
+APP_TITLE = "TicketOS"
+JWT_SECRET = os.environ.get("JWT_SECRET", "")
 JWT_ALGORITHM = "HS256"
-ACCESS_COOKIE_NAME = "orderticketmonitor_access_token"
+ACCESS_COOKIE_NAME = "ticketos_access_token"
+
+# =========================================================
+# CONFIGURATION VALIDATION
+# =========================================================
+validation_errors = []
+
+if not JWT_SECRET or JWT_SECRET.strip() == "" or JWT_SECRET == "CHANGE-THIS-TO-A-LONG-RANDOM-SECRET":
+    validation_errors.append("JWT_SECRET is required and must not be empty or set to the default insecure value.")
+
+if not ADMIN_PASSWORD or ADMIN_PASSWORD.strip() == "" or ADMIN_PASSWORD == "admin123":
+    validation_errors.append("ADMIN_PASSWORD is required and must not be empty or set to the default 'admin123'.")
+
+if validation_errors:
+    raise ValueError(
+        "\n========================================================================\n"
+        "CONFIG ERROR:\n" +
+        "\n".join(f" - {err}" for err in validation_errors) +
+        "\n\nPlease check your .env file and set these required variables securely."
+        "\n========================================================================\n"
+    )
+
+# Warnings for optional configs
+if not ORDER_BOT_TOKEN or not ORDER_CHAT_ID:
+    print("[WARNING]: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing. Telegram alerts are disabled.")
+
+if not TICKETSHOP_USERNAME or not TICKETSHOP_PASSWORD:
+    print("[WARNING]: TICKETSHOP_USERNAME or TICKETSHOP_PASSWORD is missing. Ticketshop inventory checks will fail.")
 
 INACTIVITY_MINUTES = 20
 REMEMBER_DAYS = 30
