@@ -517,92 +517,94 @@ class LiveTicketGroupAdapter(OrderPlatformAdapter):
             "email": email
         }
 
-    def _get_all_historical_order_ids(self):
-        logger.info("Scanning page 1 for historical orders...")
+    def _search_all_orders_initial(self):
+        """Submits the initial search to get all historical orders and returns the HTML."""
         url = "https://my.liveticketgroup.com/pages/content/orders.aspx?topnav=1&subnav=26"
         try:
             html = self.ensure_logged_in(url)
         except PlatformLoginError as le:
             raise le
-            
+
         soup = BeautifulSoup(html, "html.parser")
-        
-        viewstate = soup.find("input", id="__VIEWSTATE")["value"] if soup.find("input", id="__VIEWSTATE") else ""
-        viewstategen = soup.find("input", id="__VIEWSTATEGENERATOR")["value"] if soup.find("input", id="__VIEWSTATEGENERATOR") else ""
-        eventvalidation = soup.find("input", id="__EVENTVALIDATION")["value"] if soup.find("input", id="__EVENTVALIDATION") else ""
-        
+
         data = {
-            "__VIEWSTATE": viewstate,
-            "__VIEWSTATEGENERATOR": viewstategen,
-            "__EVENTVALIDATION": eventvalidation,
+            "__VIEWSTATE": soup.find("input", id="__VIEWSTATE")["value"] if soup.find("input", id="__VIEWSTATE") else "",
+            "__VIEWSTATEGENERATOR": soup.find("input", id="__VIEWSTATEGENERATOR")["value"] if soup.find("input", id="__VIEWSTATEGENERATOR") else "",
+            "__EVENTVALIDATION": soup.find("input",id="__EVENTVALIDATION")["value"] if soup.find("input", id="__EVENTVALIDATION") else "",
             "ctl00$plcContent$urcSearch$txtEventName": "",
             "ctl00$plcContent$urcSearch$txtStartDate": "2000-01-01",
             "ctl00$plcContent$urcSearch$txtEndDate": "2026-07-04",
             "ctl00$plcContent$urcSearch$btnSearch": "Search"
         }
-        
+
         try:
             r = self.session.post(url, data=data, timeout=30)
-            html = r.text
+            return r.text
         except Exception as e:
             raise PlatformTimeoutError(f"Failed to post historical search query: {e}")
-            
+
+    def _scrape_paginated_orders(self, html, url, target, visited_pages, pages_to_visit):
+        """Scrapes a single page of historical orders and updates the sets of pages."""
+        soup = BeautifulSoup(html, "html.parser")
+        page_data = {
+            "__VIEWSTATE": soup.find("input", id="__VIEWSTATE")["value"] if soup.find("input", id="__VIEWSTATE") else "",
+            "__VIEWSTATEGENERATOR": soup.find("input", id="__VIEWSTATEGENERATOR")["value"] if soup.find("input", id="__VIEWSTATEGENERATOR") else "",
+            "__EVENTVALIDATION": soup.find("input", id="__EVENTVALIDATION")["value"] if soup.find("input", id="__EVENTVALIDATION") else "",
+            "__EVENTTARGET": target,
+            "__EVENTARGUMENT": f"Page${min(pages_to_visit)}",
+            "ctl00$plcContent$urcSearch$txtEventName": "",
+            "ctl00$plcContent$urcSearch$txtStartDate": "2000-01-01",
+            "ctl00$plcContent$urcSearch$txtEndDate": "2026-07-04",
+        }
+
+        try:
+            r_page = self.session.post(url, data=page_data, timeout=30)
+            html = r_page.text
+            page_rows, _ = self.parse_orders_from_html(html)
+            logger.info(f"Found {len(page_rows)} orders on page {min(pages_to_visit)}.")
+
+            new_matches = re.findall(r"__doPostBack\('([^']+)','(Page\$(\d+))'\)", html)
+            for _, _, m_page in new_matches:
+                p_num = int(m_page)
+                if p_num not in visited_pages:
+                    pages_to_visit.add(p_num)
+            return [row["id"] for row in page_rows if row.get("id")], html
+        except Exception as e:
+            logger.error(f"Error fetching historical page {min(pages_to_visit)}: {e}")
+            return [], html
+
+    def _get_all_historical_order_ids(self):
+        logger.info("Scanning for all historical orders...")
+        initial_html = self._search_all_orders_initial()
+
         order_ids = []
-        rows, _ = self.parse_orders_from_html(html)
+        rows, _ = self.parse_orders_from_html(initial_html)
         logger.info(f"Found {len(rows)} orders on page 1.")
         for row in rows:
             if row.get("id"):
                 order_ids.append(row["id"])
-                
+
         visited_pages = {1}
         pages_to_visit = set()
-        matches = re.findall(r"__doPostBack\('([^']+)','(Page\$(\d+))'\)", html)
+        matches = re.findall(r"__doPostBack\('([^']+)','(Page\$(\d+))'\)", initial_html)
         target = None
-        for m_target, m_arg, m_page in matches:
+        for m_target, _, m_page in matches:
             target = m_target
             p_num = int(m_page)
             if p_num not in visited_pages:
                 pages_to_visit.add(p_num)
-                
+
+        html = initial_html
         while pages_to_visit:
             next_page = min(pages_to_visit)
             pages_to_visit.remove(next_page)
             visited_pages.add(next_page)
-            
+
             logger.info(f"Scanning page {next_page}...")
-            soup = BeautifulSoup(html, "html.parser")
-            viewstate = soup.find("input", id="__VIEWSTATE")["value"] if soup.find("input", id="__VIEWSTATE") else ""
-            viewstategen = soup.find("input", id="__VIEWSTATEGENERATOR")["value"] if soup.find("input", id="__VIEWSTATEGENERATOR") else ""
-            eventvalidation = soup.find("input", id="__EVENTVALIDATION")["value"] if soup.find("input", id="__EVENTVALIDATION") else ""
-            
-            page_data = {
-                "__VIEWSTATE": viewstate,
-                "__VIEWSTATEGENERATOR": viewstategen,
-                "__EVENTVALIDATION": eventvalidation,
-                "__EVENTTARGET": target,
-                "__EVENTARGUMENT": f"Page${next_page}",
-                "ctl00$plcContent$urcSearch$txtEventName": "",
-                "ctl00$plcContent$urcSearch$txtStartDate": "2000-01-01",
-                "ctl00$plcContent$urcSearch$txtEndDate": "2026-07-04",
-            }
-            
-            try:
-                r_page = self.session.post(url, data=page_data, timeout=30)
-                html = r_page.text
-                page_rows, _ = self.parse_orders_from_html(html)
-                logger.info(f"Found {len(page_rows)} orders on page {next_page}.")
-                for row in page_rows:
-                    if row.get("id"):
-                        order_ids.append(row["id"])
-                        
-                new_matches = re.findall(r"__doPostBack\('([^']+)','(Page\$(\d+))'\)", html)
-                for _, m_arg, m_page in new_matches:
-                    p_num = int(m_page)
-                    if p_num not in visited_pages:
-                        pages_to_visit.add(p_num)
-            except Exception as e:
-                logger.error(f"Error fetching historical page {next_page}: {e}")
-                
+            url = "https://my.liveticketgroup.com/pages/content/orders.aspx?topnav=1&subnav=26"
+            page_order_ids, html = self._scrape_paginated_orders(html, url, target, visited_pages, pages_to_visit)
+            order_ids.extend(page_order_ids)
+
         unique_order_ids = []
         seen = set()
         for o in order_ids:
@@ -616,4 +618,5 @@ def get_ltg_adapter():
     for item in context.platform_adapters:
         if getattr(item, "source_name", "") == "LiveTicketGroup": 
             return item
+
     return None

@@ -208,7 +208,7 @@ class FootballTicketNetAdapter(OrderPlatformAdapter):
                 cat_rows = page.locator("tr.category_row, tr[class*='cat'], [class*='category_row']")
                 for j in range(cat_rows.count()):
                     try:
-                        cat_row.nth(j).click()
+                        cat_rows.nth(j).click()
                         page.wait_for_timeout(1000)
                     except: pass
 

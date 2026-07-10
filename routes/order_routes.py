@@ -4,6 +4,7 @@ from sqlalchemy import or_, func
 from database import get_db, DBOrder, DBAppEvent
 from routes.auth_routes import login_required, role_required
 from core.helpers import standardize_status
+import extensions as context
 
 order_bp = Blueprint('order', __name__)
 
@@ -228,8 +229,7 @@ def api_check_order_status():
     if not platform or not event_name:
         return jsonify({"ok": False, "error": "Platform and Event Name required"})
     
-    from platforms.registry import platform_adapters
-    adapter = next((a for a in platform_adapters if a.source_name == platform), None)
+    adapter = next((a for a in getattr(context, "platform_adapters", []) if a.source_name == platform), None)
     if not adapter:
         return jsonify({"ok": False, "error": f"Adapter for {platform} not found"})
     
