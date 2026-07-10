@@ -3,24 +3,39 @@ version: '3.8'
 services:
   web:
     build: .
+    container_name: ticketos_web
+    restart: unless-stopped
+    init: true
+    ipc: host
+    stop_grace_period: 3m
     ports:
-      - "5000:5000"
-    environment:
-      - PORT=5000
-      - ADMIN_USERNAME=admin
-      - ADMIN_PASSWORD=MySecurePassword123!
-      - JWT_SECRET=ab4382c918ef03d8d9b1a03f90d1f76c35c82de9e01f09e86c0c24ea0210fa2e
-      - TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN
-      - TELEGRAM_CHAT_ID=YOUR_CHAT_ID
-      - LTG_USERNAME=YOUR_LTG_USER
-      - LTG_PASSWORD=YOUR_LTG_PASS
-      - FTN_USERNAME=YOUR_FTN_USER
-      - FTN_PASSWORD=YOUR_FTN_PASS
-      # Set DATABASE_URL to use PostgreSQL, otherwise defaults to SQLite in persistent volume
-      # - DATABASE_URL=postgresql://postgres:postgres@db:5432/ticketos
+      - "127.0.0.1:5000:5000"
+    env_file:
+      - .env
     volumes:
-      - ticketos-data:/app
-    restart: always
+      - ticketos-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+# Commented PostgreSQL configuration for future use:
+#   db:
+#     image: postgres:15-alpine
+#     container_name: ticketos_db
+#     restart: unless-stopped
+#     environment:
+#       - POSTGRES_USER=postgres
+#       - POSTGRES_PASSWORD=secure_password_here
+#       - POSTGRES_DB=postgres
+#     volumes:
+#       - pgdata:/var/lib/postgresql/data
+#     # Database port is not exposed publicly to prevent internet access
+#     expose:
+#       - "5432"
 
 volumes:
   ticketos-data:
+#   pgdata:

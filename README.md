@@ -4,11 +4,7 @@ TicketOS is a central business intelligence and monitoring dashboard for managin
 
 ---
 
-<<<<<<< HEAD
-##  How to Run Locally
-=======
 ## 🚀 How to Run Locally
->>>>>>> 91bf84a (feat: redesign operations dashboard and improve order workspace)
 
 ### Prerequisites
 * Python 3.10+
@@ -44,11 +40,7 @@ Open `http://127.0.0.1:5000` in your web browser and log in with your configured
 
 ---
 
-<<<<<<< HEAD
-##  Running with Docker
-=======
-## 🐳 Running with Docker
->>>>>>> 91bf84a (feat: redesign operations dashboard and improve order workspace)
+## 🐳 Running with Docker (Production Ready)
 
 Docker simplifies VPS deployment by packaging all Chromium and library dependencies automatically.
 
@@ -56,7 +48,7 @@ Docker simplifies VPS deployment by packaging all Chromium and library dependenc
 ```bash
 docker-compose up -d --build
 ```
-This boots the app on port `5000` and creates a persistent volume `ticketos-data` to preserve the SQLite database, configurations, and logs.
+This boots the app on port `5000` (bound to `127.0.0.1:5000`) and creates a persistent volume `ticketos-data` mapped to `/app/data` to preserve the SQLite database, state configuration files, and log files.
 
 ---
 
@@ -64,10 +56,12 @@ This boots the app on port `5000` and creates a persistent volume `ticketos-data
 
 | Variable | Description | Required | Example |
 | :--- | :--- | :---: | :--- |
-| `PORT` | Listening port for the Flask app server | No | `5000` |
+| `DATA_DIR` | Directory where database, states, and logs are persisted | No | `/app/data` |
 | `ADMIN_USERNAME` | Administrator account login name | Yes | `admin` |
 | `ADMIN_PASSWORD` | Administrator account login password | Yes | `MySecurePassword123!` |
 | `JWT_SECRET` | Secret key used to sign session cookies | Yes | `ab4382...e01` |
+| `TRUST_PROXY` | Whether to trust X-Forwarded headers from reverse proxies | No | `true` |
+| `AUTO_START_SCHEDULER` | Auto-start the background sync worker on application boot | No | `true` |
 | `TELEGRAM_BOT_TOKEN` | Bot token for dispatching scraper alerts | Yes | `123456:ABC-DEF` |
 | `TELEGRAM_CHAT_ID` | Telegram chat/group ID for alerts | Yes | `-987654321` |
 | `LTG_USERNAME` | LiveTicketGroup username/email | Yes | `ltg_manager` |
@@ -78,11 +72,7 @@ This boots the app on port `5000` and creates a persistent volume `ticketos-data
 
 ---
 
-<<<<<<< HEAD
-## Production Readiness Checklist
-=======
 ## 🔒 Production Readiness Checklist
->>>>>>> 91bf84a (feat: redesign operations dashboard and improve order workspace)
 1. **Password Enforcement**: Ensure `ADMIN_PASSWORD` is changed from `admin123`.
 2. **Secrets Rotation**: Set a cryptographically secure value (e.g. 64 hex characters) for `JWT_SECRET` in production.
 3. **Telegram Channel**: Verify that your Telegram bot is added to your target channel/group and has messaging permissions.
@@ -90,24 +80,38 @@ This boots the app on port `5000` and creates a persistent volume `ticketos-data
 
 ---
 
-<<<<<<< HEAD
-##  Database Backups
-=======
-## 💾 Database Backups
->>>>>>> 91bf84a (feat: redesign operations dashboard and improve order workspace)
+## 💾 Database Backups & Restore
 
 ### 1. SQLite Backup (Default Local Deployment)
-SQLite stores all data in a single file `order_ticket_db.sqlite`. To back it up, run a cron job to copy the file safely:
+SQLite database is persisted under `/app/data/order_ticket_db.sqlite`. To prevent database corruption during copy, use the online backup command:
+
+**Backup Command:**
 ```bash
-# Every night at 2 AM
-0 2 * * * cp /app/order_ticket_db.sqlite /backups/db_$(date +\%F).sqlite
+# Safely dump an online backup of SQLite database
+sqlite3 /app/data/order_ticket_db.sqlite ".backup '/backups/db_$(date +\%F).sqlite'"
+```
+
+**Restore Command:**
+```bash
+# Stop the application, copy the backup over the active database file, then restart
+docker-compose stop
+cp /backups/db_backup.sqlite /app/data/order_ticket_db.sqlite
+docker-compose start
 ```
 
 ### 2. PostgreSQL Backup (Production Recommended)
 For production databases, use `pg_dump` to create logical backups:
+
+**Backup Command:**
 ```bash
 # Every night at 2 AM
 0 2 * * * pg_dump -d $DATABASE_URL -F c -b -v -f /backups/db_$(date +\%F).dump
+```
+
+**Restore Command:**
+```bash
+# Restore PostgreSQL from logical dump
+pg_restore -d $DATABASE_URL -v /backups/db_backup.dump
 ```
 
 ---
@@ -115,7 +119,7 @@ For production databases, use `pg_dump` to create logical backups:
 ## ☁️ VPS Deployment Notes
 
 ### Using Nginx Reverse Proxy
-To deploy on a standard Ubuntu VPS, configure Nginx as a reverse proxy to forward traffic to your Flask app or Docker container running on port `5000`:
+To deploy on a standard Ubuntu VPS, configure Nginx as a reverse proxy to forward traffic to your Docker container running on port `5000`:
 
 ```nginx
 server {

@@ -1,6 +1,6 @@
 import time
 from playwright.sync_api import sync_playwright
-from config import TICKETSHOP_USERNAME, TICKETSHOP_PASSWORD
+from config import TICKETSHOP_USERNAME, TICKETSHOP_PASSWORD, TICKETSSHOP_STATE_FILE
 
 def check_ticketsshop_for_order(event_name, order_id):
     """
@@ -13,10 +13,15 @@ def check_ticketsshop_for_order(event_name, order_id):
     
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            
             import os
-            state_file = "ticketsshop_state.json"
+            launch_args = []
+            if os.environ.get("PLAYWRIGHT_NO_SANDBOX") == "true":
+                launch_args.append("--no-sandbox")
+            if os.environ.get("PLAYWRIGHT_DISABLE_DEV_SHM") == "true":
+                launch_args.append("--disable-dev-shm-usage")
+            
+            browser = p.chromium.launch(headless=True, args=launch_args)
+            state_file = TICKETSSHOP_STATE_FILE
             
             # Load session if it exists to avoid repeated logins
             if os.path.exists(state_file):
@@ -97,9 +102,15 @@ def check_ticketsshop_bulk(orders_to_check):
     
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
             import os
-            state_file = "ticketsshop_state.json"
+            launch_args = []
+            if os.environ.get("PLAYWRIGHT_NO_SANDBOX") == "true":
+                launch_args.append("--no-sandbox")
+            if os.environ.get("PLAYWRIGHT_DISABLE_DEV_SHM") == "true":
+                launch_args.append("--disable-dev-shm-usage")
+            
+            browser = p.chromium.launch(headless=True, args=launch_args)
+            state_file = TICKETSSHOP_STATE_FILE
             
             if os.path.exists(state_file):
                 context = browser.new_context(storage_state=state_file)

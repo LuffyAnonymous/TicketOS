@@ -14,7 +14,16 @@ from routes import register_routes
 def create_app():
     app = Flask(__name__, static_folder="static", template_folder="templates")
     app.secret_key = JWT_SECRET
-    app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+    # Configure template reload based on environment
+    is_prod = (os.getenv("FLASK_ENV") == "production")
+    app.config["TEMPLATES_AUTO_RELOAD"] = not is_prod
+
+    # Proxy Configuration for Nginx
+    if os.getenv("TRUST_PROXY") == "true":
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 
     # Security warnings for dev fallbacks
     from config import ADMIN_PASSWORD
@@ -40,8 +49,32 @@ def create_app():
     ensure_admin_user()
     context.state = AppState()
     context.platform_adapters = build_platform_adapters()
+
     from services.scheduler_service import SchedulerService
     context.scheduler = SchedulerService()
+
+    # Document: A separate scheduler service is planned for Phase 2 to isolate processes.
+    # Auto-start scheduler if configured
+    if os.getenv("AUTO_START_SCHEDULER") == "true":
+        print("[SCHEDULER]: AUTO_START_SCHEDULER is enabled. Booting background scheduler thread...")
+        context.scheduler.start()
+
+    # Graceful shutdown handler for container SIGTERM/SIGINT signals
+    import signal
+    import sys
+    def handle_shutdown(signum, frame):
+        print(f"[SYSTEM]: Received shutdown signal {signum}. Initiating graceful exit...")
+        if context.scheduler:
+            print("[SCHEDULER]: Stopping background thread...")
+            context.scheduler.stop()
+        sys.exit(0)
+
+    try:
+        signal.signal(signal.SIGTERM, handle_shutdown)
+        signal.signal(signal.SIGINT, handle_shutdown)
+    except ValueError:
+        # signal only works in main thread, ignore if run inside worker threads
+        pass
 
     register_routes(app)
     return app

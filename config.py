@@ -12,8 +12,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 PLATFORM_CONFIGS = {
     "LiveTicketGroup": {
         "enabled": True,
-        "username": os.environ.get("LIVE_USERNAME", ""),
-        "password": os.environ.get("LIVE_PASSWORD", ""),
+        "username": os.environ.get("LIVE_USERNAME") or os.environ.get("LTG_USERNAME") or "",
+        "password": os.environ.get("LIVE_PASSWORD") or os.environ.get("LTG_PASSWORD") or "",
         "login_url": "https://www.liveticketgroup.com/login",
         "next_chunk_url": "https://www.liveticketgroup.com/_next/static/chunks/9fe30054f439dbd7.js",
         "orders_base_url": "https://my.liveticketgroup.com/pages/content/index.aspx",
@@ -34,8 +34,8 @@ PLATFORM_CONFIGS = {
     },
     "FootballTicketNet": {
         "enabled": True,
-        "username": os.environ.get("FOOTBALLTICKETNET_USERNAME", ""),
-        "password": os.environ.get("FOOTBALLTICKETNET_PASSWORD", ""),
+        "username": os.environ.get("FOOTBALLTICKETNET_USERNAME") or os.environ.get("FTN_USERNAME") or "",
+        "password": os.environ.get("FOOTBALLTICKETNET_PASSWORD") or os.environ.get("FTN_PASSWORD") or "",
         "login_url": "https://www.footballticketnet.com/",
         "delivery_url": "https://www.footballticketnet.com/?action=delivery_info",
     },
@@ -90,26 +90,82 @@ REMEMBER_DAYS = 30
 # =========================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-SETTINGS_FILE = os.path.join(BASE_DIR, "combined_alert_settings.json")
-ORDER_SEEN_FILE = os.path.join(BASE_DIR, "seen_orders.json")
-ORDER_STATE_FILE = os.path.join(BASE_DIR, "platform_states.json")
-SENT_ORDERS_FILE = os.path.join(BASE_DIR, "sent_orders.json")
-TICKETSSHOP_RESULTS_FILE = os.path.join(BASE_DIR, "ticketsshop_check_results.json")
-USERS_FILE = os.path.join(BASE_DIR, "users.json")
-ORDER_DETAILS_CACHE_FILE = os.path.join(BASE_DIR, "order_details_cache.json")
-ORDER_STATUS_STATE_FILE = os.path.join(BASE_DIR, "order_status_state.json")
-ORDER_STATUS_ALERTS_FILE = os.path.join(BASE_DIR, "order_status_alerts.json")
+DATA_DIR = os.environ.get("DATA_DIR")
+if not DATA_DIR:
+    DATA_DIR = os.path.join(BASE_DIR, "data")
 
-DEBUG_ORDERS_HTML = os.path.join(BASE_DIR, "debug_orders_page.html")
-DEBUG_LOGIN_HTML = os.path.join(BASE_DIR, "debug_login_response.html")
-DEBUG_CHUNK_JS = os.path.join(BASE_DIR, "debug_login_chunk.js")
-DEBUG_ORDER_DETAILS_HTML = os.path.join(BASE_DIR, "debug_order_details.html")
+# Ensure required directories exist
+os.makedirs(os.path.join(DATA_DIR, "logs"), exist_ok=True)
+os.makedirs(os.path.join(DATA_DIR, "state"), exist_ok=True)
+os.makedirs(os.path.join(DATA_DIR, "exports"), exist_ok=True)
+
+# Safe data migration helper
+def migrate_existing_data(data_dir, base_dir):
+    import shutil
+    # 1. SQLite database
+    old_db = os.path.join(base_dir, "order_ticket_db.sqlite")
+    new_db = os.path.join(data_dir, "order_ticket_db.sqlite")
+    if os.path.exists(old_db) and not os.path.exists(new_db):
+        print(f"[DATA MIGRATION]: Moving SQLite database to secure data directory...")
+        try:
+            shutil.copy2(old_db, new_db)
+            print("[DATA MIGRATION]: SQLite database migrated successfully.")
+        except Exception as e:
+            print(f"[DATA MIGRATION ERROR]: Failed to migrate database: {e}")
+
+    # 2. State and setting JSON files
+    state_files = [
+        ("combined_alert_settings.json", os.path.join(data_dir, "state", "combined_alert_settings.json")),
+        ("seen_orders.json", os.path.join(data_dir, "state", "seen_orders.json")),
+        ("platform_states.json", os.path.join(data_dir, "state", "platform_states.json")),
+        ("sent_orders.json", os.path.join(data_dir, "state", "sent_orders.json")),
+        ("sent_footballticketnet_orders.json", os.path.join(data_dir, "state", "sent_footballticketnet_orders.json")),
+        ("footballticketnet_state.json", os.path.join(data_dir, "state", "footballticketnet_state.json")),
+        ("ticketsshop_check_results.json", os.path.join(data_dir, "state", "ticketsshop_check_results.json")),
+        ("ticketsshop_state.json", os.path.join(data_dir, "state", "ticketsshop_state.json")),
+        ("order_details_cache.json", os.path.join(data_dir, "state", "order_details_cache.json")),
+        ("order_status_state.json", os.path.join(data_dir, "state", "order_status_state.json")),
+        ("order_status_alerts.json", os.path.join(data_dir, "state", "order_status_alerts.json")),
+        ("users.json", os.path.join(data_dir, "state", "users.json"))
+    ]
+    for old_name, new_path in state_files:
+        old_path = os.path.join(base_dir, old_name)
+        if os.path.exists(old_path) and not os.path.exists(new_path):
+            print(f"[DATA MIGRATION]: Migrating {old_name}...")
+            try:
+                os.makedirs(os.path.dirname(new_path), exist_ok=True)
+                shutil.copy2(old_path, new_path)
+            except Exception as e:
+                print(f"[DATA MIGRATION ERROR]: Failed to migrate {old_name}: {e}")
+
+# Run data migration immediately on module load
+migrate_existing_data(DATA_DIR, BASE_DIR)
+
+DATABASE_FILE = os.path.join(DATA_DIR, "order_ticket_db.sqlite")
+LOG_FILE = os.path.join(DATA_DIR, "logs", "ticketos.log")
+
+SETTINGS_FILE = os.path.join(DATA_DIR, "state", "combined_alert_settings.json")
+ORDER_SEEN_FILE = os.path.join(DATA_DIR, "state", "seen_orders.json")
+ORDER_STATE_FILE = os.path.join(DATA_DIR, "state", "platform_states.json")
+SENT_ORDERS_FILE = os.path.join(DATA_DIR, "state", "sent_orders.json")
+TICKETSSHOP_RESULTS_FILE = os.path.join(DATA_DIR, "state", "ticketsshop_check_results.json")
+TICKETSSHOP_STATE_FILE = os.path.join(DATA_DIR, "state", "ticketsshop_state.json")
+USERS_FILE = os.path.join(DATA_DIR, "state", "users.json")
+ORDER_DETAILS_CACHE_FILE = os.path.join(DATA_DIR, "state", "order_details_cache.json")
+ORDER_STATUS_STATE_FILE = os.path.join(DATA_DIR, "state", "order_status_state.json")
+ORDER_STATUS_ALERTS_FILE = os.path.join(DATA_DIR, "state", "order_status_alerts.json")
+
+DEBUG_ORDERS_HTML = os.path.join(DATA_DIR, "state", "debug_orders_page.html")
+DEBUG_LOGIN_HTML = os.path.join(DATA_DIR, "state", "debug_login_response.html")
+DEBUG_CHUNK_JS = os.path.join(DATA_DIR, "state", "debug_login_chunk.js")
+DEBUG_ORDER_DETAILS_HTML = os.path.join(DATA_DIR, "state", "debug_order_details.html")
 
 LOGIN_STATE_TREE_RAW = '["",{"children":["(landing)",{"children":["login",{"children":["__PAGE__",{},null,null]},null,null]},null,null,true]},null,null]'
 LOGIN_STATE_TREE_ENCODED = quote(LOGIN_STATE_TREE_RAW)
 
-SENT_FOOTBALLTICKETNET_ORDERS_FILE = os.path.join(BASE_DIR, "sent_footballticketnet_orders.json")
-FOOTBALLTICKETNET_STATE_FILE = os.path.join(BASE_DIR, "footballticketnet_state.json")
+SENT_FOOTBALLTICKETNET_ORDERS_FILE = os.path.join(DATA_DIR, "state", "sent_footballticketnet_orders.json")
+FOOTBALLTICKETNET_STATE_FILE = os.path.join(DATA_DIR, "state", "footballticketnet_state.json")
+
 
 AUTO_CACHE_THREADS = 3
 AUTO_CACHE_SLEEP_SECONDS = 0.8

@@ -421,3 +421,17 @@ def api_dashboard_alerts():
         return jsonify({"error": str(e)}), 500
     finally:
         db.close()
+
+@dashboard_bp.route("/health", methods=["GET"])
+def public_health():
+    from sqlalchemy import text
+    db = get_db()
+    if not db:
+        return jsonify({"status": "unhealthy"}), 503
+    try:
+        db.execute(text("SELECT 1"))
+        return jsonify({"status": "healthy"}), 200
+    except Exception:
+        return jsonify({"status": "unhealthy"}), 503
+    finally:
+        db.close()

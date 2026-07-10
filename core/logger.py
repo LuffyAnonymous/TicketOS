@@ -2,9 +2,8 @@ import logging
 import os
 import time
 from datetime import datetime
-from config import BASE_DIR
+from config import LOG_FILE as log_file
 
-log_file = os.path.join(BASE_DIR, "ticketos.log")
 
 class DatabaseLoggingHandler(logging.Handler):
     """

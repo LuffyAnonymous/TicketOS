@@ -4,7 +4,28 @@ from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, Numeric, UniqueConstraint, ForeignKey, text, or_, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from config import DATABASE_URL
+from config import DATABASE_URL, DATABASE_FILE
+from urllib.parse import urlparse
+
+def get_safe_db_url_log_string(url):
+    if not url:
+        return "None"
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme == "sqlite":
+            return "sqlite"
+        netloc = parsed.netloc
+        if "@" in netloc:
+            credentials, host = netloc.split("@", 1)
+            if ":" in credentials:
+                user, _ = credentials.split(":", 1)
+                netloc = f"{user}:***@{host}"
+            else:
+                netloc = f"***@{host}"
+        return f"{parsed.scheme}://{netloc}{parsed.path}"
+    except Exception:
+        return "Unknown Engine"
+
 
 Base = declarative_base()
 
@@ -146,7 +167,12 @@ class DBAppEvent(Base):
     details = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-engine = create_engine(DATABASE_URL)
+# Determine default database URL
+db_url = DATABASE_URL
+if not db_url:
+    db_url = f"sqlite:///{DATABASE_FILE}"
+
+engine = create_engine(db_url)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():
@@ -167,34 +193,37 @@ def test_db_connection():
 def init_db():
     global engine, SessionLocal, DB_ENGINE_TYPE
     
-    is_pg = False
-    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
-        is_pg = True
+    db_url = DATABASE_URL
+    is_explicit = bool(db_url)
+    
+    if not db_url:
+        db_url = f"sqlite:///{DATABASE_FILE}"
         
-    is_connected = False
+    is_pg = db_url.startswith("postgresql")
+    
+    print(f"Connecting to database: {get_safe_db_url_log_string(db_url)}")
+    
     try:
-        if DATABASE_URL:
-            temp_engine = create_engine(DATABASE_URL)
-            with temp_engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            is_connected = True
-            engine = temp_engine
-            SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-            if is_pg:
-                DB_ENGINE_TYPE = "postgresql"
-            else:
-                DB_ENGINE_TYPE = "sqlite"
-    except Exception as e:
-        is_connected = False
-        print(f"Database connection to {DATABASE_URL} failed: {e}")
-
-    if not is_connected:
-        print("\nSwitching to fallback local SQLite database...")
-        db_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "order_ticket_db.sqlite")
-        sqlite_url = f"sqlite:///{db_file}"
-        engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
+        temp_engine = create_engine(db_url)
+        with temp_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        
+        # Connection succeeded
+        engine = temp_engine
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-        DB_ENGINE_TYPE = "sqlite"
+        DB_ENGINE_TYPE = "postgresql" if is_pg else "sqlite"
+        print(f"Database connection successful. Engine: {DB_ENGINE_TYPE.upper()}")
+        
+    except Exception as e:
+        if is_explicit:
+            print(f"CRITICAL ERROR: Failed to connect to explicitly configured database {get_safe_db_url_log_string(db_url)}: {e}")
+            raise e
+        else:
+            print(f"Fallback database connection failed: {e}. Switching to fallback local SQLite database...")
+            sqlite_url = f"sqlite:///{DATABASE_FILE}"
+            engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
+            SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+            DB_ENGINE_TYPE = "sqlite"
 
     Base.metadata.create_all(bind=engine)
     

@@ -20,7 +20,13 @@ class FanpassAdapter(OrderPlatformAdapter):
 
         context.state.log("Fanpass: starting browser for check")
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            import os
+            launch_args = []
+            if os.environ.get("PLAYWRIGHT_NO_SANDBOX") == "true":
+                launch_args.append("--no-sandbox")
+            if os.environ.get("PLAYWRIGHT_DISABLE_DEV_SHM") == "true":
+                launch_args.append("--disable-dev-shm-usage")
+            browser = p.chromium.launch(headless=True, args=launch_args)
             page = browser.new_page()
             try:
                 page.goto(login_url, wait_until="networkidle", timeout=60000)

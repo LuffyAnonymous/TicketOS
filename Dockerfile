@@ -22,19 +22,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
+# Create non-root application user
+RUN useradd -m -u 1000 appuser
+
 WORKDIR /app
+
+# Set environment variables for Playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Playwright browser and dependencies
-RUN playwright install chromium
-RUN playwright install-deps chromium
+RUN mkdir -p /ms-playwright && \
+    playwright install chromium && \
+    playwright install-deps chromium
 
-# Copy app code
-COPY . .
+# Create directories and set correct ownership
+RUN mkdir -p /app/data /app/data/logs /app/data/state /app/data/exports && \
+    chown -R appuser:appuser /app /ms-playwright
 
-# Expose port and define entrypoint
+# Copy app code as non-root user
+COPY --chown=appuser:appuser . .
+
+USER appuser
+
 EXPOSE 5000
-CMD ["python", "app.py"]
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "180", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
